@@ -33,6 +33,7 @@
 #include <WinAPI.au3>
 #include <GuiMenu.au3>
 #include <String.au3>
+#include <GDIPlus.au3>
 
 Opt("GUIOnEventMode", 1) ; enable GUI events
 Opt("GUIEventOptions", 1) ; minimize only sends notification
@@ -68,6 +69,8 @@ Global $state, $iconchange, $rebuild, $onclose, $aMouse
 
 Global $contextGUI, $nGUI, $Button1, $Button2, $Button3, $Button4, $Button6, $Button8
 Global $nProfile, $nNew, $nClone, $nRename, $nRemove
+Global $aProfIcons[4][2], $fGDIP = False ; profile action icon bitmaps: [n][0] = normal, [n][1] = disabled
+Global Const $aProfIconNames[4] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile"]
 Global $refreshnow, $rebuildonchange, $trayexit, $trayonclose
 Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
 Global $iAssocIcon, $iAssocIconBrowse, $iAssocIconIndex, $iAssocIconPreview
@@ -523,18 +526,20 @@ Func _InitAllGUIs($guimode = "")
 	; Profile management
 	GUICtrlCreateGroup(" Profile ", 16, 342, 278, 142)
 	$nProfile = GUICtrlCreateCombo("", 30, 366, 250, 28, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
-	$nNew = GUICtrlCreateIcon("shell32.dll", -101, 55, 421, 24, 24)
+	_ProfileIconsInit() ; load New_Profile / Clone_Profile / Rename_Profile / Remove_Profile icons
+	$nNew = GUICtrlCreatePic("", 51, 413, 32, 32)
 	GUICtrlSetTip(-1, "New profile")
 	GUICtrlSetCursor(-1, 0)
-	$nClone = GUICtrlCreateIcon("shell32.dll", -135, 112, 421, 24, 24)
+	$nClone = GUICtrlCreatePic("", 108, 413, 32, 32)
 	GUICtrlSetTip(-1, "Clone profile")
 	GUICtrlSetCursor(-1, 0)
-	$nRename = GUICtrlCreateIcon("shell32.dll", -134, 169, 421, 24, 24)
+	$nRename = GUICtrlCreatePic("", 165, 413, 32, 32)
 	GUICtrlSetTip(-1, "Rename profile")
 	GUICtrlSetCursor(-1, 0)
-	$nRemove = GUICtrlCreateIcon("shell32.dll", -132, 226, 421, 24, 24)
+	$nRemove = GUICtrlCreatePic("", 222, 413, 32, 32)
 	GUICtrlSetTip(-1, "Remove profile")
 	GUICtrlSetCursor(-1, 0)
+	_ProfileIconsSet(True) ; show normal (enabled) icons
 	GUICtrlCreateGroup ("",-99,-99,1,1)  ;close group
 	GUICtrlCreateLabel("Profile actions", 30, 450, 250, 18)
 	GUICtrlSetFont(-1, 8.5, 400, 0, "Segoe UI")
@@ -896,6 +901,7 @@ Func _ActionButtonsState()
 		GUICtrlSetState($nClone, $GUI_ENABLE)
 		GUICtrlSetState($nRename, $GUI_ENABLE)
 		GUICtrlSetState($nRemove, $GUI_ENABLE)
+		_ProfileIconsSet(True)
 	Else
 		GUICtrlSetState($Button1, $GUI_DISABLE) ; disable add button
 		GUICtrlSetState($Button2, $GUI_ENABLE)
@@ -905,6 +911,7 @@ Func _ActionButtonsState()
 		GUICtrlSetState($nClone, $GUI_DISABLE)
 		GUICtrlSetState($nRename, $GUI_DISABLE)
 		GUICtrlSetState($nRemove, $GUI_DISABLE)
+		_ProfileIconsSet(False)
 	EndIf
 EndFunc
 
@@ -1242,6 +1249,17 @@ Func _FtypeAssocFilterChange()
 	_PopulateFtypeListForAssociation(GUICtrlRead($ftypeAssocFilter))
 EndFunc
 
+Func _SplitAssociationModes($sMode)
+	; StringSplit sets @error when a single mode has no delimiter.
+	; Treat that value as a one-item mode list instead of dropping the association.
+	Local $aModes = StringSplit($sMode, "|")
+	If @error Then
+		Local $aSingle[2] = [1, StringStripWS($sMode, 3)]
+		Return $aSingle
+	EndIf
+	Return $aModes
+EndFunc
+
 Func _IsSpecialFtypeMode($sMode)
 	$sMode = StringLower(StringStripWS($sMode, 3))
 	Switch $sMode
@@ -1252,8 +1270,8 @@ Func _IsSpecialFtypeMode($sMode)
 EndFunc
 
 Func _AssociationHasFileTypes($sAssocName)
-	Local $aModes = StringSplit(IniRead($associni, $sAssocName, "mode", ""), "|")
-	If @error Or $aModes[0] = 0 Then Return False
+	Local $aModes = _SplitAssociationModes(IniRead($associni, $sAssocName, "mode", ""))
+	If $aModes[0] = 0 Then Return False
 	For $i = 1 To $aModes[0]
 		If Not _IsSpecialFtypeMode($aModes[$i]) Then Return True
 	Next
@@ -1274,19 +1292,17 @@ Func _PopulateFtypeListForAssociation($sAssocName)
 	If $sAssocName = "" Or $sAssocName = "(All associations)" Then
 		$aSections = _ReadINISections()
 		For $i = 1 To $aSections[0]
-			$aModes = StringSplit(IniRead($associni, $aSections[$i], "mode", ""), "|")
-			If @error Or $aModes[0] = 0 Then ContinueLoop
+			$aModes = _SplitAssociationModes(IniRead($associni, $aSections[$i], "mode", ""))
+			If $aModes[0] = 0 Then ContinueLoop
 			For $j = 1 To $aModes[0]
 				_AddUniqueFtype($aFtypes, $aModes[$j])
 			Next
 		Next
 	ElseIf _AssociationHasFileTypes($sAssocName) Then
-		$aModes = StringSplit(IniRead($associni, $sAssocName, "mode", ""), "|")
-		If Not @error Then
-			For $i = 1 To $aModes[0]
-				_AddUniqueFtype($aFtypes, $aModes[$i])
-			Next
-		EndIf
+		$aModes = _SplitAssociationModes(IniRead($associni, $sAssocName, "mode", ""))
+		For $i = 1 To $aModes[0]
+			_AddUniqueFtype($aFtypes, $aModes[$i])
+		Next
 	EndIf
 	If $aFtypes[0] > 1 Then _ArraySort($aFtypes, 0, 1)
 	GUICtrlSetData($ftypelist, "|" & _ArrayToString($aFtypes, "|", 1))
@@ -1660,8 +1676,8 @@ EndFunc
 Func _FtypeToArray($sections)
 	Local $modearray[1] = [0], $i, $j, $modes
 	For $i = 1 To $sections[0]
-		$modes = StringSplit(IniRead($associni, $sections[$i], "mode", ""), "|")
-		If @error Or $modes[0] = 0 Then ContinueLoop
+		$modes = _SplitAssociationModes(IniRead($associni, $sections[$i], "mode", ""))
+		If $modes[0] = 0 Then ContinueLoop
 		For $j = 1 To $modes[0]
 			_AddUniqueFtype($modearray, $modes[$j])
 		Next
@@ -2350,6 +2366,165 @@ Func _Exit()
 	; reset original listview window procedure and free the callback
 	If $oldWndProc Then _WinAPI_SetWindowLong($hsLV, $GWL_WNDPROC, $oldWndProc)
 	If $pWndProc Then DllCallbackFree($pWndProc)
+	_ProfileIconsFree()
 	Exit
 EndFunc
 #EndRegion Main Functions
+
+#Region Profile action icons
+; Icons converted from the SVG files: New_Profile.svg, Clone_Profile.svg, Rename_Profile.svg, Remove_Profile.svg
+; Embedded as 32x32 PNG (base64) so no extra files are needed. "_Disabled" = grey variant shown while associations are active.
+
+Func _ProfileIconsInit()
+	Local $i, $j, $sName, $bBin, $hBmp, $hHBmp, $iBg, $aRet, $iCol
+	If Not $fGDIP Then $fGDIP = _GDIPlus_Startup()
+	If Not $fGDIP Then Return
+	; background = current dialog colour (COLOR_3DFACE) so the transparent PNG blends in
+	$aRet = DllCall("user32.dll", "int", "GetSysColor", "int", 15)
+	If @error Then
+		$iCol = 0xF0F0F0
+	Else
+		$iCol = BitOR(BitShift(BitAND($aRet[0], 0xFF), -16), BitShift(BitAND(BitShift($aRet[0], 8), 0xFF), -8), BitShift($aRet[0], 16))
+	EndIf
+	$iBg = BitOR(0xFF000000, $iCol)
+	For $i = 0 To 3
+		For $j = 0 To 1
+			$sName = $aProfIconNames[$i]
+			If $j = 1 Then $sName &= "_Disabled"
+			$bBin = _B64ToBinary(_ProfileIconData($sName))
+			If @error Then ContinueLoop
+			$hBmp = _GDIPlus_BitmapCreateFromMemory($bBin)
+			If $hBmp = 0 Then ContinueLoop
+			$hHBmp = _GDIPlus_BitmapCreateHBITMAPFromBitmap($hBmp, $iBg)
+			_GDIPlus_BitmapDispose($hBmp)
+			$aProfIcons[$i][$j] = $hHBmp
+		Next
+	Next
+EndFunc
+
+Func _ProfileIconsSet($bEnabled)
+	Local $aCtrl[4] = [$nNew, $nClone, $nRename, $nRemove], $i, $h, $iIdx = 1
+	If $bEnabled Then $iIdx = 0
+	For $i = 0 To 3
+		$h = $aProfIcons[$i][$iIdx]
+		If $h Then GUICtrlSendMsg($aCtrl[$i], 0x0172, 0, $h) ; STM_SETIMAGE, IMAGE_BITMAP
+	Next
+EndFunc
+
+Func _ProfileIconsFree()
+	Local $i, $j
+	For $i = 0 To 3
+		For $j = 0 To 1
+			If $aProfIcons[$i][$j] Then DllCall("gdi32.dll", "bool", "DeleteObject", "handle", $aProfIcons[$i][$j])
+			$aProfIcons[$i][$j] = 0
+		Next
+	Next
+	If $fGDIP Then _GDIPlus_Shutdown()
+	$fGDIP = False
+EndFunc
+
+Func _B64ToBinary($sB64)
+	; CRYPT_STRING_BASE64 = 1
+	Local $aRet = DllCall("crypt32.dll", "bool", "CryptStringToBinaryA", "str", $sB64, "dword", 0, "dword", 1, "ptr", 0, "dword*", 0, "ptr", 0, "ptr", 0)
+	If @error Or Not $aRet[0] Then Return SetError(1, 0, Binary(""))
+	Local $iSize = $aRet[5]
+	Local $tBuf = DllStructCreate("byte[" & $iSize & "]")
+	$aRet = DllCall("crypt32.dll", "bool", "CryptStringToBinaryA", "str", $sB64, "dword", 0, "dword", 1, "struct*", $tBuf, "dword*", $iSize, "ptr", 0, "ptr", 0)
+	If @error Or Not $aRet[0] Then Return SetError(2, 0, Binary(""))
+	Return DllStructGetData($tBuf, 1)
+EndFunc
+
+Func _ProfileIconData($sName)
+	Local $s = ""
+	Switch $sName
+		Case "New_Profile"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABnklEQVR42u2VwStEURTGfzNMY4NS"
+			$s &= "LJSMBSuhLLCws7Ing1KyGGoWZsNO/gF/AQtLUxNWlkgyNVmxV0iSDSILM8/mm7o9b2bem5lH6n11"
+			$s &= "O7d77jn33HPudy4ECBCgMhqAJHAFfAF5zZNA+DcOzwBWiZHxO4gVHfQGLAItQCuwpDULSFTwkda+"
+			$s &= "qWoCuJTxsoMuIV3OzwA+ZNzhoGuX7r2WACrVryAZctBFJPO11Lixgv4aGAHmgC2bLm7ssd/YxJjk"
+			$s &= "qi0LWQefP7Cg9H0Ca0AM6AHWtWYB8zYby+VIl0qtiRCwLQY4YUeMMGGvdQoY1W2zxvo9cOG2VLPA"
+			$s &= "CfCkcWyUAD9ZUA/UxALfUY4FncAkMA70A91As27zCtyKAWfAEfBQwk+x7nduAmoS5U7VA9y+6ILe"
+			$s &= "SByIVpuNCUVZdPooBswAg0Cbmk9E8yEFuws8G3Y3yponxIzP5RyYNjqdG0TVD3Ly8QJ0eQlgU4YH"
+			$s &= "LnpDOYSBQ/nacGsA0Cu5L+NqUQD2NO/zwoKiHKhDwxi2fVaeaJj6qz6Q9cF3lgAB/gO+AaHmeT4m"
+			$s &= "/oNbAAAAAElFTkSuQmCC"
+		Case "New_Profile_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACq0lEQVR42u1VMWgUURB9b3eDBgwK"
+			$s &= "doeojUI02CjEFLESCwXByEVUELxjd8EiYgrrtZFUBwb0vF3PAwmRrCRBEGysDEh6o7Zi5IJVjhhI"
+			$s &= "5G7/2PyE88xl94xRwXvV3z9//rydeTMfaKON/x2MOxCGoVmpVG6IiEOyGwBF5D1Jv1wu3/c8T20b"
+			$s &= "gTAMzcXFxZDkwEZ2EZlaWFhIb4WEsZmxUqm4OvgygOzq6upuEdkjIjaAZZIDqVTK2eyOIAhC3/el"
+			$s &= "UCikN7JbMQSz+k9vu677uG7/ke/7FoA8ySyAh9uSAQDdAKCUmvyJuWVNanJHtqKBOAJKB+MG9e/Q"
+			$s &= "y2grBOJKMAegV0SuAsjVG2q12mWSIDnXWPMGon0AYBjGrSAI0nX7s47j5DYlICJ5kr0A7vq+3xFF"
+			$s &= "0YRlWVRKXSLp6WMPGnzSTe7q+6H9yPgMOI7zJAiCUwAyAEZM0xwRkXVnAEXbtscaAg02BBoGcBJA"
+			$s &= "TkRm12ur1OdEgwgACoXCFZIOgDXBvSPp27b9NM43CIJQRNIiMui67rNWNQAAcF13HMD4doxiA38Z"
+			$s &= "TTNQLBZTtVrtLMl+AD0kD4hIFwABsATgk+6AGcMwXmaz2XIT8c3qbpmPfQtKpdLOarV6kaQjIv1J"
+			$s &= "NaJJvSZZWFlZmRoaGvrW8mPk+/5pACUA+/TWFwAvALxSSn2wLGs+iqKvAGCaZpdSaj+AowDOkDwn"
+			$s &= "Inu130eS12zbnklMIJ/PHzRN8y2AXQDeALgnItOu61aTXDI6Orqjs7MzDeCmiJwAsGRZVk8mk5lP"
+			$s &= "pAHTNK/r4M9t275AUloRkk75mOd546lUahrA+SiKMgDuJO2CQ1ow060Gr4fneUpEJvTn4cRdQNLS"
+			$s &= "E+5Ys3c7sajI43rZ8SttOFw3Zv/cHFjr1d+J+rnfRhv/NL4DOg4dyBbi9bcAAAAASUVORK5CYII="
+		Case "Clone_Profile"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACJklEQVR42u3WTYiOURQH8N+M+ajJ"
+			$s &= "jNgIMxYkY8rCZ0RZmjILm5kNKSk72ymJWNhYWUhZiYUYO4WIhRSzGIUphMH42E2GkYkZeW3OW0+3"
+			$s &= "9/G+Y2Ykvadu57nnf++5/3vuOfc+VKUq/4nUzJbjdlzEKAr4GP32wBvxNLCXOIa5M7X4FoyF87R9"
+			$s &= "wdYYtzPBHmLBdBdvxHA4vIkO1IW+EfbhGFeDNwmJMyV8rgv7/koIdIWj12hKsCa8CrwrbOcTAmOo"
+			$s &= "T+b1BHYpa6zNIbAq9DWMJ9g4rsd3R+gPyZhmLK5kp3U59kIZgnMqGFfAZrRGf1PoNnSXI9YZDt6i"
+			$s &= "JcFa8D7w7WG7kBzBaGyuLyeJi+1nXgRu4QVWRBL24lmU3wkswXPcjmhsS+afww/0Y37YFmJ1kL+f"
+			$s &= "RLCkrMFIDvMRrI1xuxLsbuRAKt2B902lHNtwGkMR1qHot2bK9UFcUP04gIYcX39EYCblrxCo/w3W"
+			$s &= "UOJOKfmI1GI9doTuiESah88R7icYwNXQxWRaiYNxRAO4hzsxr6y04ijelSmdtA3jMBZlNnUyg3/D"
+			$s &= "lXhbcuUQvmcmDeJ43AdLM1ndHP3OwAeThXozF9WjEmRPlbq09gY4gbPYMMVz3xhvwWT42RP2fTkR"
+			$s &= "O5I6KO6iZ5oJuDv8PI7+8hwCn9InYCKA+mkSaMpEslgReXnTln2M6jM/FjNZipOVlmthFlo538uy"
+			$s &= "Ebg8ixdTnu+v1f/4qvwz8gsq2dTkDSE67QAAAABJRU5ErkJggg=="
+		Case "Clone_Profile_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADtUlEQVR42u2WTWhcVRTHf+e9hAxo"
+			$s &= "0wkuxDCdLkQaE0RLi1rcWarEKsRFhaIoSWbuC0aijVIQF310UVEX4kNs7ryJC7GCLVi60EK6UYlK"
+			$s &= "NbQqIRShrVadrGxTrEKJc4+bmzIZJ1+mikj+q/vO1z333HP+98Ea1vB/gKrK3/Vd1NFa2wHEIvIg"
+			$s &= "kAUuqeoYEEdRdCZJkpZMJvM10AGcBQ7Nzs6+Njg4eGXVCZTL5fucc8eBdQ3UV1S1O4qicWttj4gc"
+			$s &= "rdF9EwTB/YVC4eJyEggaCZMkaXHOvec3P+Gc66pUKs3OuS5gDLhRRA4lSdJijDkG/FDjfme1Wn25"
+			$s &= "PmaaplustTZNU7NkAplMZgeQB75X1Z6BgYGpOI7/GBgYmFLVR4HzQD6TyewQEQU+nVdWkd3W2ua6"
+			$s &= "PrlVRIyqbl8yARG53S8/iqLo91qd/z7ug3Z6+5/rQqwLw7B9OVfQtEBX62IJAiFAEATq7f9iV61W"
+			$s &= "dWRkZJuI5LzoXp/sBmvtrkUr4Jyb9IF3JknSWtcfrcDDXv+tF2+oCzEzPT1dCcNwj4gcFpHDwB7v"
+			$s &= "s21OJiLvN5yCOI6b2tvbp4DbgJPOub2qekZEOoIgeBW4B/iuUql0dXZ26szMzAWgtuRvGGOeK5VK"
+			$s &= "w0C3l90M3AH8JCJfzFV6sTHcrKonVPWmBj3yi3PugSiKTpVKpceBd2vU42EYPtTf3/9rHafs8qc+"
+			$s &= "UiwWH2OJO6ZQKJwOw3CziBxU1XPAjKqeE5GDwF1RFJ1KkqQFGAYuASeBoWw2u71+8xU34Rz6+vp+"
+			$s &= "BJ5eSD80NHQV2LIaGg+u55tQP/u1aGtrO6aqN9SWvyEVx3Ec5HK5rc65ncBWoBNoA9YDl4GLwJSq"
+			$s &= "TojIh8ViccKTEaOjo5uccy8COVWdAD5X1U+iKLq85FuQpmnOOVcQkX4gt4KDX1DVMlCOomhaVSVN"
+			$s &= "09eBZ73+qqqOhWH4SqFQ+KzhFVhrX1LVsyKyz2c/qaoHnHPdqroxDMNWY4yEYdiqqhu9/ICqTgJ5"
+			$s &= "EdkvIuettXtFRLPZ7PPAHEe0iMgjzrlxa+2bcRzPu3ZJ07RXVd8GZoFDwFvGmK+We/xyuXy3c+4Z"
+			$s &= "YDfQJCJPFYvFd9I07feVqcc+Y8z+axVwzg379RPGmN6VbO7H9UtjzJMi0uvJ5QXPph8v4DIcx/G1"
+			$s &= "6QtEZJN3PLqaCXDOfeCXHXO9sYDp+nw+f0stD8yNTo+19npMY7N/NWdLpdKiNvOIyD8Y/zqaROTI"
+			$s &= "PxV8odjVavW3tV/5Nfxn8CeIVKLpsoAUsAAAAABJRU5ErkJggg=="
+		Case "Rename_Profile"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABRElEQVR42u2Xv04CQRDGfxgtiAUV"
+			$s &= "CqGxkJ6GmsSo8AL4UhbGhghvQEhIeAUfAfxXmQg0NCQmRu2wmUsmy63sZW+12S+ZYm/n5vtmd24y"
+			$s &= "BxER27gAFsAmZ5tL7J0IQZ7Ym4uAxDlvpMbd++/7zlPAMdACDoMclUPhvst7r8CpT9ysAi6BT6PY"
+			$s &= "lkDtLwSkkSd2HboI28AEKFr2P0LWQBv4Er+xkOnsp0Ap1BV0FHkPKABdg7wcqgh15gMhPwIe5Nkz"
+			$s &= "UPGtLZujJu8r8pkDubcAfex3Ql7OQO4lwEY+VeTVPD9v0/Fb1rcpmT9KCyakgGRtZp6F3CpgP0OA"
+			$s &= "IdAA6sATcAasgZuUtqtx5duIzBb7Ind+IE1o1xDy6wkULAL0XtfYvwdWwAnQdEhoZIkbJyKrgIXl"
+			$s &= "7n0NmYydppt5oIn4PP71RJj4AWV76H431ah2AAAAAElFTkSuQmCC"
+		Case "Rename_Profile_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACEUlEQVR42u2XT2sTYRDGn5kEjBdP"
+			$s &= "LR7aioKCoIIfQatNexWxx4DJvllDLv0GfgTFy777B/dYSg+tZ6kUz94KRT0Vc9AiFASFwIZ9vGwk"
+			$s &= "LCmmcbcKdi4Ls7P7e2bemX3fBc7sfzfJO8IwXCL5EsB8kSCSPVVtGWNej/p1TGDhcAAQkQWSUd5f"
+			$s &= "HRM7DwDtdluKFBAEAQFcyvv1b/dAtagXhWF4keT1Wq32rtFo/Jj0OS0IvkTyI4Ddfr+/F0XR1VMT"
+			$s &= "4Pt+neQrABcy15U0TXc9z5srXYDv+3UR2QZwPndrrlKprJXaA0EQLAPYBlA7Zuy+l1aBHHwLQL7p"
+			$s &= "9tI0fV6KAGvtyhAuIp4x5iHJx6PwarV6z3Xdb4ULCIJgWVW3ssxDx3G61tpZEXmahbxPkqTebDa/"
+			$s &= "Fj4Fo2UnGRhjXGvtrKruALiRwe92u90vJ0lKT1p2AH673X4Sx/GMqu6IyM1p4RMJsNaujJTdN8Z0"
+			$s &= "4jieGQwGv+AkF6eBTyRAVYcN92IIT5LkDYBbAPZF5I7rup+nHedJluAcADiOs5bLfF9EFo0xh6ey"
+			$s &= "GUVRtEHyNoBrQ3iapke+7z9T1WM/u8aY1UIEkHyUXT8AuE/ySEQ2ADwgWV4FSK7meuKtMebQ87zL"
+			$s &= "qroOYL3UJXBdd3Ocv9PpHAA4+NPd9N87EZHsichCdoYr2j79tgKq2iLZKwneOvsTOrO8/QRpTOEl"
+			$s &= "BA7vwgAAAABJRU5ErkJggg=="
+		Case "Remove_Profile"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAq0lEQVR42u2XsQ2DMBBFn6IUFGxB"
+			$s &= "QRmizEHNBsyRiimYgJI5mCElAyQNHTQuXBAIxjJE+l+65su+/3TX2CBJ21QC40qVPoKaH4K2VjMX"
+			$s &= "dDnzuHND3u7o0Zoe+bcDh0/ABSAFHkBsebHx0hAANdABmeVlxqtDABy+AgEIQAACEIBXXR3uFEAE"
+			$s &= "9JbXAQkwhADoZ7wBeP3lCpZ09/ggvblCVMBnR/AbeOo3Iy1pAtjyTzqf/xYRAAAAAElFTkSuQmCC"
+		Case "Remove_Profile_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABF0lEQVR42u2XPU7DQBCFZ9arFUVu"
+			$s &= "QZE2F3E6oLZs45V8CipOYMn2xheALrmGJUSZhgKhXAAXkaXdRwVFBEhLiMLPvnI08+abmWK1REH/"
+			$s &= "XeyTbIy5BNB8ashc5Hne7gVgjLkBcPatkzLf5nl+vhsXP/YEdV3HQoglgFVRFPOvmDdNs2Tm2Dk3"
+			$s &= "11qv3ss5+gakb0HXdVPn3GQcx3VZlgMRUVVVE6XUVAgxpGm69vHz3oC1dgGgl1LO3qaQcgagt9Yu"
+			$s &= "fP2OfoIAEAACQAAIAL/vNYyi6IKZT5h58xpTSvUATgFsDw6QpulmN5YkyZaIHv7WCaSUT845Yua4"
+			$s &= "bVvs2efRewNZlt0R0TURDXs0fgZwpbW+Dz+goI/0Atg5X47aq8GRAAAAAElFTkSuQmCC"
+	EndSwitch
+	Return $s
+EndFunc
+#EndRegion Profile action icons

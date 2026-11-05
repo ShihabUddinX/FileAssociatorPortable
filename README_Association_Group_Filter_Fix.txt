@@ -11,3 +11,6 @@ Version: 3.0.0.0
 Publisher: ShihabUddinX
 
 Note: Source-level update only. AutoIt compilation and Windows runtime testing were not available in this environment.
+
+
+Single-extension fix: associations with a single extension (for example, iso) are now included in the File Types association filter and file-type list. The mode parser handles StringSplit no-delimiter results as a single-item list.
