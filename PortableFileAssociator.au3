@@ -70,6 +70,10 @@ Global $state, $iconchange, $rebuild, $onclose, $aMouse
 Global $contextGUI, $nGUI, $Button1, $Button2, $Button3, $Button4, $Button6, $Button8
 Global $nProfile, $nNew, $nClone, $nRename, $nRemove
 Global $aProfIcons[4][2], $fGDIP = False ; profile action icon bitmaps: [n][0] = normal, [n][1] = disabled
+Global $iThemeMode = 0, $fDark = False ; theme: 0 = system, 1 = light, 2 = dark
+Global $iBgCol = 0xF0F0F0, $iCtrlCol = 0xFFFFFF, $iTextCol = 0x000000, $iLightBg = 0xF0F0F0
+Global $nTheme
+Global $aMutedLbl[4][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
 Global Const $aProfIconNames[4] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile"]
 Global $refreshnow, $rebuildonchange, $trayexit, $trayonclose
 Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
@@ -489,6 +493,7 @@ EndFunc
 ;=======================================================================================
 
 Func _InitAllGUIs($guimode = "")
+	_ThemeLoad() ; read theme setting (system / light / dark)
 	TraySetClick(8) ; show menu only on right-click
 	TraySetState(1) ; show tray icon
 
@@ -526,7 +531,6 @@ Func _InitAllGUIs($guimode = "")
 	; Profile management
 	GUICtrlCreateGroup(" Profile ", 16, 342, 278, 142)
 	$nProfile = GUICtrlCreateCombo("", 30, 366, 250, 28, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
-	_ProfileIconsInit() ; load New_Profile / Clone_Profile / Rename_Profile / Remove_Profile icons
 	$nNew = GUICtrlCreatePic("", 51, 413, 32, 32)
 	GUICtrlSetTip(-1, "New profile")
 	GUICtrlSetCursor(-1, 0)
@@ -539,15 +543,22 @@ Func _InitAllGUIs($guimode = "")
 	$nRemove = GUICtrlCreatePic("", 222, 413, 32, 32)
 	GUICtrlSetTip(-1, "Remove profile")
 	GUICtrlSetCursor(-1, 0)
-	_ProfileIconsSet(True) ; show normal (enabled) icons
 	GUICtrlCreateGroup ("",-99,-99,1,1)  ;close group
-	GUICtrlCreateLabel("Profile actions", 30, 450, 250, 18)
+	$aMutedLbl[0][0] = GUICtrlCreateLabel("Profile actions", 30, 450, 250, 18)
+	$aMutedLbl[0][1] = 0x666666
 	GUICtrlSetFont(-1, 8.5, 400, 0, "Segoe UI")
 	GUICtrlSetColor(-1, 0x666666)
 
-	GUICtrlCreateLabel("v" & $version, 16, 510)
+	$aMutedLbl[1][0] = GUICtrlCreateLabel("v" & $version, 16, 510)
+	$aMutedLbl[1][1] = 0x777777
 	GUICtrlSetFont(-1, 8.5)
-	GUICtrlSetState(-1, $GUI_DISABLE)
+	GUICtrlSetColor(-1, 0x777777)
+
+	; theme selector
+	GUICtrlCreateLabel("Theme:", 150, 510, 42, 18)
+	$nTheme = GUICtrlCreateCombo("", 196, 506, 98, 24, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlSetTip(-1, "System follows the Windows app theme.")
+	GUICtrlSetData($nTheme, "System|Light|Dark", StringUpper(StringLeft(_ThemeModeName(), 1)) & StringTrimLeft(_ThemeModeName(), 1))
 
 	; GUI events
 	GUISetOnEvent($GUI_EVENT_CLOSE, "_Exit")
@@ -582,6 +593,7 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($nClone, "_CloneProfile")
 	GUICtrlSetOnEvent($nRename, "_RenameProfile")
 	GUICtrlSetOnEvent($nRemove, "_RemoveProfile")
+	GUICtrlSetOnEvent($nTheme, "_ThemeEvent")
 
 	; set button states
 	_ActionButtonsState() ; action buttons
@@ -597,7 +609,8 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlCreateLabel("Context-menu icon", 136, 171, 140, 18)
 	GUICtrlCreateLabel("Icon index", 458, 171, 70, 18)
 	GUICtrlCreateLabel("Command", 136, 226, 70, 18)
-	GUICtrlCreateLabel("Use %1 to pass the selected file, folder or drive.", 136, 284, 340, 16)
+	$aMutedLbl[2][0] = GUICtrlCreateLabel("Use %1 to pass the selected file, folder or drive.", 136, 284, 340, 16)
+	$aMutedLbl[2][1] = 0x666666
 	GUICtrlSetFont(-1, 8, 400, 2)
 	GUICtrlSetColor(-1, 0x666666)
 	; editor inputs
@@ -695,7 +708,8 @@ Func _InitAllGUIs($guimode = "")
 	; subclass the control so we can get our dropfiles message
 	$pWndProc = DllCallbackRegister("_MY_WINDOW_PROC", "int", "hwnd;uint;wparam;lparam")
 	$oldWndProc = _WinAPI_SetWindowLong($hsLV, $GWL_WNDPROC, DllCallbackGetPtr($pWndProc))
-	GUICtrlCreateLabel("Click Add... or drag-and-drop to add SendTo targets.", 6, 260)
+	$aMutedLbl[3][0] = GUICtrlCreateLabel("Click Add... or drag-and-drop to add SendTo targets.", 6, 260)
+	$aMutedLbl[3][1] = 0x555555
 	GUICtrlSetFont(-1, 8, 400, 2)
 	GUICtrlSetColor(-1, 0x555555)
 	$sAdd = GUICtrlCreateButton("Add...", 5, 285, 50, 25)
@@ -712,6 +726,8 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($sDummy, "_sDropAction")
 	GUICtrlSetOnEvent($sDone, "_sCloseGUI")
 #EndRegion ===== SendTo GUI
+
+	_ThemeApply() ; apply light / dark theme to all GUIs
 
 	; populate profile list
 	_PopulateProfiles()
@@ -1783,6 +1799,7 @@ Func _sDropAction()
 	Local $scParams = GUICtrlCreateInput("", 120, 110, 289, 21)
 	Local $scOK = GUICtrlCreateButton("Ok", 152, 140, 49, 25)
 	Local $scCancel = GUICtrlCreateButton("Cancel", 216, 140, 49, 25)
+	_ThemeApply($gui)
 
 	GUISetState()
 
@@ -2371,25 +2388,224 @@ Func _Exit()
 EndFunc
 #EndRegion Main Functions
 
+#Region Theme (light / dark)
+;=======================================================================================
+; Theme: System / Light / Dark. Saved in Data\settings\profile.ini ([profile] theme=system|light|dark)
+;=======================================================================================
+Func _ThemeModeName()
+	Switch $iThemeMode
+		Case 1
+			Return "light"
+		Case 2
+			Return "dark"
+	EndSwitch
+	Return "system"
+EndFunc
+
+Func _BGR($iRGB) ; swap RGB <-> BGR (COLORREF)
+	Return BitOR(BitShift(BitAND($iRGB, 0xFF), -16), BitAND($iRGB, 0xFF00), BitShift(BitAND($iRGB, 0xFF0000), 16))
+EndFunc
+
+Func _ThemeLoad()
+	Local $s = IniRead($profileini, "profile", "theme", "system"), $aRet, $v, $i
+	Switch $s
+		Case "light"
+			$iThemeMode = 1
+		Case "dark"
+			$iThemeMode = 2
+		Case Else
+			$iThemeMode = 0
+	EndSwitch
+	; current system dialog colour (used for light mode)
+	$aRet = DllCall("user32.dll", "int", "GetSysColor", "int", 15) ; COLOR_3DFACE
+	If Not @error Then $iLightBg = _BGR($aRet[0])
+	$fDark = ($iThemeMode = 2)
+	If $iThemeMode = 0 Then
+		$v = RegRead("HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme")
+		If Not @error And $v = 0 Then $fDark = True
+	EndIf
+	If $fDark Then
+		$iBgCol = 0x202020
+		$iCtrlCol = 0x2B2B2B
+		$iTextCol = 0xF0F0F0
+	Else
+		$iBgCol = $iLightBg
+		$iCtrlCol = 0xFFFFFF
+		$iTextCol = 0x000000
+	EndIf
+	For $i = 0 To 3
+		$aMutedLbl[$i][2] = 0xA0A0A0 ; muted label colour in dark mode
+	Next
+EndFunc
+
+Func _ThemeEvent()
+	Local $m = "system"
+	Switch GUICtrlRead($nTheme)
+		Case "Light"
+			$m = "light"
+		Case "Dark"
+			$m = "dark"
+	EndSwitch
+	IniWrite($profileini, "profile", "theme", $m)
+	_ThemeLoad()
+	_ThemeApply()
+EndFunc
+
+Func _ThemeClass($h)
+	Local $tBuf = DllStructCreate("wchar[64]")
+	Local $a = DllCall("user32.dll", "int", "GetClassNameW", "hwnd", $h, "struct*", $tBuf, "int", 64)
+	If @error Or $a[0] = 0 Then Return ""
+	Return DllStructGetData($tBuf, 1)
+EndFunc
+
+Func _ThemeSetWT($h, $sTheme)
+	; $sTheme: "" = default visual style, "classic" = no visual style, otherwise a theme name
+	If $sTheme = "" Then
+		DllCall("uxtheme.dll", "long", "SetWindowTheme", "hwnd", $h, "ptr", 0, "ptr", 0)
+	ElseIf $sTheme = "classic" Then
+		DllCall("uxtheme.dll", "long", "SetWindowTheme", "hwnd", $h, "wstr", "", "wstr", "")
+	Else
+		DllCall("uxtheme.dll", "long", "SetWindowTheme", "hwnd", $h, "wstr", $sTheme, "ptr", 0)
+	EndIf
+EndFunc
+
+Func _ThemeApply($hOnly = 0)
+	; $hOnly = 0: all main GUIs (+ tray/menus, SendTo list, icons); otherwise only the given GUI (e.g. a dialog)
+	Local $aTargets[4] = [$nGUI, $aGUI, $tGUI, $sGUI], $iCount = 4
+	Local $sBtn = "", $sEdit = "", $sList = "", $sClassic = ""
+	Local $id, $iMax, $h, $sClass, $iStyle, $iType, $j, $aRet, $bMuted, $iBk, $iVal = 0, $hHdr
+	If $hOnly Then
+		$aTargets[0] = $hOnly
+		$iCount = 1
+	EndIf
+	If $fDark Then
+		$sBtn = "DarkMode_Explorer"
+		$sEdit = "DarkMode_CFD"
+		$sList = "DarkMode_Explorer"
+		$sClassic = "classic"
+		$iVal = 1
+	EndIf
+
+	If Not $hOnly Then
+		; dark popup / tray menus (uxtheme ordinals: 135 = SetPreferredAppMode, 136 = FlushMenuThemes)
+		If $fDark Then
+			DllCall("uxtheme.dll", "int", 135, "int", 2)
+		Else
+			DllCall("uxtheme.dll", "int", 135, "int", 0)
+		EndIf
+		DllCall("uxtheme.dll", "none", 136)
+	EndIf
+
+	; window background + title bar
+	For $j = 0 To $iCount - 1
+		GUISetBkColor($iBgCol, $aTargets[$j])
+		DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 20, "int*", $iVal, "dword", 4)
+		DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 19, "int*", $iVal, "dword", 4)
+	Next
+
+	; controls
+	$iMax = GUICtrlCreateDummy()
+	GUICtrlDelete($iMax)
+	For $id = 3 To $iMax
+		$h = GUICtrlGetHandle($id)
+		If Not $h Then ContinueLoop
+		If $hOnly Then
+			$aRet = DllCall("user32.dll", "hwnd", "GetAncestor", "hwnd", $h, "uint", 2) ; GA_ROOT
+			If @error Or $aRet[0] <> $hOnly Then ContinueLoop
+		EndIf
+		$sClass = _ThemeClass($h)
+		If $sClass = "" Then ContinueLoop
+		$aRet = DllCall("user32.dll", "long", "GetWindowLongW", "hwnd", $h, "int", -16) ; GWL_STYLE
+		If @error Then ContinueLoop
+		$iStyle = $aRet[0]
+		Switch $sClass
+			Case "Button"
+				$iType = BitAND($iStyle, 0xF)
+				Switch $iType
+					Case 0, 1 ; push button
+						_ThemeSetWT($h, $sBtn)
+					Case 2, 3, 4, 5, 6, 7, 9 ; checkbox, radio, group box
+						_ThemeSetWT($h, $sClassic)
+						GUICtrlSetColor($id, $iTextCol)
+				EndSwitch
+			Case "Edit", "ComboBox"
+				_ThemeSetWT($h, $sEdit)
+				$iBk = $iCtrlCol
+				If Not $fDark And BitAND($iStyle, 0x800) Then $iBk = $iLightBg ; read-only edit keeps its grey
+				GUICtrlSetBkColor($id, $iBk)
+				GUICtrlSetColor($id, $iTextCol)
+			Case "ListBox"
+				_ThemeSetWT($h, $sList)
+				GUICtrlSetBkColor($id, $iCtrlCol)
+				GUICtrlSetColor($id, $iTextCol)
+			Case "msctls_updown32"
+				_ThemeSetWT($h, $sBtn)
+			Case "Static"
+				$iType = BitAND($iStyle, 0x1F)
+				If $iType <= 2 Then ; text labels only (skip icons, bitmaps and frames)
+					$bMuted = False
+					For $j = 0 To 3
+						If $aMutedLbl[$j][0] = $id Then $bMuted = True
+					Next
+					If Not $bMuted Then GUICtrlSetColor($id, $iTextCol)
+				EndIf
+		EndSwitch
+	Next
+
+	If Not $hOnly Then
+		; muted labels
+		For $j = 0 To 3
+			If $fDark Then
+				GUICtrlSetColor($aMutedLbl[$j][0], $aMutedLbl[$j][2])
+			Else
+				GUICtrlSetColor($aMutedLbl[$j][0], $aMutedLbl[$j][1])
+			EndIf
+		Next
+		; SendTo list view (not an AutoIt control)
+		If $fDark Then
+			_ThemeSetWT($hsLV, "DarkMode_Explorer")
+		Else
+			_ThemeSetWT($hsLV, "")
+		EndIf
+		$hHdr = _GUICtrlListView_GetHeader($hsLV)
+		If $hHdr Then
+			If $fDark Then
+				_ThemeSetWT($hHdr, "DarkMode_ItemsView")
+			Else
+				_ThemeSetWT($hHdr, "ItemsView")
+			EndIf
+		EndIf
+		DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hsLV, "uint", 0x1001, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETBKCOLOR
+		DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hsLV, "uint", 0x1026, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETTEXTBKCOLOR
+		DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hsLV, "uint", 0x1024, "wparam", 0, "lparam", _BGR($iTextCol)) ; LVM_SETTEXTCOLOR
+		; profile action icons in the matching colour (black on light, white on dark)
+		_ProfileIconsReload()
+	EndIf
+
+	; repaint (RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW)
+	For $j = 0 To $iCount - 1
+		DllCall("user32.dll", "bool", "RedrawWindow", "hwnd", $aTargets[$j], "ptr", 0, "ptr", 0, "uint", 0x585)
+	Next
+EndFunc
+#EndRegion Theme (light / dark)
+
 #Region Profile action icons
 ; Icons converted from the SVG files: New_Profile.svg, Clone_Profile.svg, Rename_Profile.svg, Remove_Profile.svg
-; Embedded as 32x32 PNG (base64) so no extra files are needed. "_Disabled" = grey variant shown while associations are active.
+; Embedded as 32x32 PNG (base64), no extra files needed. Variants per icon:
+;   <Name>               black   (light theme)        <Name>_Disabled        grey (light theme, disabled)
+;   <Name>_Dark          white   (dark theme)         <Name>_Dark_Disabled   grey (dark theme, disabled)
 
-Func _ProfileIconsInit()
-	Local $i, $j, $sName, $bBin, $hBmp, $hHBmp, $iBg, $aRet, $iCol
+Func _ProfileIconsReload()
+	Local $i, $j, $sName, $bBin, $hBmp, $hHBmp, $iBg, $sSuffix = ""
 	If Not $fGDIP Then $fGDIP = _GDIPlus_Startup()
 	If Not $fGDIP Then Return
-	; background = current dialog colour (COLOR_3DFACE) so the transparent PNG blends in
-	$aRet = DllCall("user32.dll", "int", "GetSysColor", "int", 15)
-	If @error Then
-		$iCol = 0xF0F0F0
-	Else
-		$iCol = BitOR(BitShift(BitAND($aRet[0], 0xFF), -16), BitShift(BitAND(BitShift($aRet[0], 8), 0xFF), -8), BitShift($aRet[0], 16))
-	EndIf
-	$iBg = BitOR(0xFF000000, $iCol)
+	Local $aOld = $aProfIcons
+	$iBg = BitOR(0xFF000000, $iBgCol) ; blend transparent PNG with the current window colour
+	If $fDark Then $sSuffix = "_Dark"
 	For $i = 0 To 3
 		For $j = 0 To 1
-			$sName = $aProfIconNames[$i]
+			$aProfIcons[$i][$j] = 0
+			$sName = $aProfIconNames[$i] & $sSuffix
 			If $j = 1 Then $sName &= "_Disabled"
 			$bBin = _B64ToBinary(_ProfileIconData($sName))
 			If @error Then ContinueLoop
@@ -2398,6 +2614,13 @@ Func _ProfileIconsInit()
 			$hHBmp = _GDIPlus_BitmapCreateHBITMAPFromBitmap($hBmp, $iBg)
 			_GDIPlus_BitmapDispose($hBmp)
 			$aProfIcons[$i][$j] = $hHBmp
+		Next
+	Next
+	_ProfileIconsSet($state = 0)
+	; free the previous bitmaps after the controls switched to the new ones
+	For $i = 0 To 3
+		For $j = 0 To 1
+			If $aOld[$i][$j] Then DllCall("gdi32.dll", "bool", "DeleteObject", "handle", $aOld[$i][$j])
 		Next
 	Next
 EndFunc
@@ -2461,6 +2684,30 @@ Func _ProfileIconData($sName)
 			$s &= "Inu130eS12zbnklMIJ/PHzRN8y2AXQDeALgnItOu61aTXDI6Orqjs7MzDeCmiJwAsGRZVk8mk5lP"
 			$s &= "pAHTNK/r4M9t275AUloRkk75mOd546lUahrA+SiKMgDuJO2CQ1ow060Gr4fneUpEJvTn4cRdQNLS"
 			$s &= "E+5Ys3c7sajI43rZ8SttOFw3Zv/cHFjr1d+J+rnfRhv/NL4DOg4dyBbi9bcAAAAASUVORK5CYII="
+		Case "New_Profile_Dark"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABwUlEQVR42u2VP0scURTFz1UX05jA"
+			$s &= "loGgKRQSJAoWSYrtrOyVbFYIiIURLLKN6YJfwE+ghaULS2JlqSLiwJIq6QMqIsHG2FjE/dnchXHY"
+			$s &= "zezMugZhDjzuzP33Dve++56UIUOGGAC9wBLwA/gLXPv3EtBzH5tXaY1qV0kAi77RJTAHPAaeAPOu"
+			$s &= "A1iIyVFxv+k0BL578McmtgW31TohEFe+Fy6rTWwN3ctOqhxHoO7SmthyLq87IdAXY/8p6bWkkqTV"
+			$s &= "iK0Y8rlV8ojfW5efIm0IzGw17gx88P5dAcvAEPAc+Ow6gNlITLuotCptOJlJWpM018Jl3czmIzHR"
+			$s &= "w1aW9MYrGIT0J2Z22O40vAd2gd++doBim7Hpx/CO7pKOxrDr6PsH86eSpiQVJI1KGpQ0IAlJfyQd"
+			$s &= "+QTsS9o2s9MWqRp9P26nXI+AErAH1BOc6LqfkSLQn7ZXk8BxKOkZsAa8A8aAPJDzlQfGnewGcB6K"
+			$s &= "+wUUkm4+FHpcDoAZIJcgvh+YBWqe4wJ4loTAigd+89lPW8UeYMtzfUnyFgy7/GpmpCVgZnVJm/47"
+			$s &= "kmQKGvLVHVwYE5HHKtEYlv/XPRB0IXegDBkeAm4A0d4OcMsYRqoAAAAASUVORK5CYII="
+		Case "New_Profile_Dark_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACoElEQVR42u2VO2gUURSGv3NnQoS4"
+			$s &= "aGKVRdRGwQc2CmqhlVgoCEYmooJEgxEkMxstrMdGrBZmJhpdfIBIxEgSBMHGSkG2N2orRgSLpFAD"
+			$s &= "K9mdY3OFZUmyE0MUMX9zH+eec37O68IKVvC/Q5o98DzP6ezsvAj0AVutzjug1NHRcSMMw3TZCHie"
+			$s &= "5+Tz+RFV7ZpTWWSsvb3dWwoJs5Awn89fsM6/q2qvqq6pVCprgfP2rmt6erpvIRtBEIwEQaCFQsGb"
+			$s &= "S+4upJymaa+IoKpXkiS5Vye6EwSBCwyJSC9wa1kiICJbAWZnZ0cbZao6atdtS6kB00SeArS2tsoc"
+			$s &= "BFrstrYUAm4T+QSwR1VPA8V6geM4J1UVVZ1ozHmDjX02nZeCIKivg3Icx8VmBIaAPcA13/dbHMd5"
+			$s &= "XK1WxXGcE6oaAhhjbjY2zzzp3LfoCMRx/CAIggPAORG5nqbpdWMMqvrryd0oih42OOpuSNVlYC9Q"
+			$s &= "FJFy3btPmQYRQKFQOKWqfcA2a/QtUEqS5FEzXZsST0S6oyh6stgaACCKomFgeDlGseEvY94I9Pf3"
+			$s &= "540xh1V1P7BDRDYCOUCBr8BHYEJEXtVqteeDg4Of5zFVtl0w2fQv6OnpWZXL5Y6LSB+wP2uNWFIv"
+			$s &= "VfU2MJYkyY9Ff0a+7x8UkfvAenv1BXgGvFDV967rTs7MzHwDaGtry6nqhlqtth04JCJHgHVW74Oq"
+			$s &= "nkmS5FVmAgMDA5vSNH0DrAZeA1GlUhkvlUqzWYz4vt9qjPGAgqruBr66rrujWCxOZqoBVT1rnT+N"
+			$s &= "4/iYDWlm2JA/DMNweGpqalxEjlar1XPA1axdsNmu44t1Xo8wDFNjzGN73JK5C1T1VzfsnO/fzgpV"
+			$s &= "3WW3Lb/ThpfrxuwfnQPlZbBdZgUr+BfwE+xdCffNcQG0AAAAAElFTkSuQmCC"
 		Case "Clone_Profile"
 			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACJklEQVR42u3WTYiOURQH8N+M+ajJ"
 			$s &= "jNgIMxYkY8rCZ0RZmjILm5kNKSk72ymJWNhYWUhZiYUYO4WIhRSzGIUphMH42E2GkYkZeW3OW0+3"
@@ -2492,6 +2739,38 @@ Func _ProfileIconData($sName)
 			$s &= "YDfQJCJPFYvFd9I07feVqcc+Y8z+axVwzg379RPGmN6VbO7H9UtjzJMi0uvJ5QXPph8v4DIcx/G1"
 			$s &= "6QtEZJN3PLqaCXDOfeCXHXO9sYDp+nw+f0stD8yNTo+19npMY7N/NWdLpdKiNvOIyD8Y/zqaROTI"
 			$s &= "PxV8odjVavW3tV/5Nfxn8CeIVKLpsoAUsAAAAABJRU5ErkJggg=="
+		Case "Clone_Profile_Dark"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACXElEQVR42u2WPWhTURTH/7dJWgim"
+			$s &= "oouoiUsRY8DBT5QKjhbs0KVdFEEEN9eCiKKDi5ODCJ1EB9G6CSoWHUTQDhHUgoraarRupbUVRVvp"
+			$s &= "z8Hz5Hl5L3kxKYjkLJdz/+frnnc+ntSiFv0PBLi/1W2rYbgIXAVm+EXTxhcN7wBeSFoE3gCngWXN"
+			$s &= "elU3MEc0fQZ2m1yfhz0BVjbqvAOomMERoASk7bxj9xWTc8A7L4ihCJtbgSHgSJIAes3QWyDrYVlg"
+			$s &= "wvBeu7vsBTAHZDy9AcOuJamBjXbecs59DQPG3za2ZOdHTz8naU2SbKfjklAjwFQCOYBdkvLG77Sz"
+			$s &= "APTX+gQ9lq73QKeHdQKThu+1uyveJ5ixmhmmOi3GZeCupNeS1ksaAQYlvZRUlHRW0lpJryTdA1KS"
+			$s &= "9nj6l5xzP4BRSSvsbpWkTZImJT3yMhiZhc3AVEzkU8AWk9vvYQ+AXIS9fsOH62nHAnABGLe0jhuf"
+			$s &= "D7XrYxtQo8BRoD3GVv0BNHlcL30Afu97WLs/UyTJRQi2SdomaZ+dJSuk5ZJmJU1Lei6pLOmmpLJz"
+			$s &= "DtPdIOmYtV5Z0kNJ951zs0mizwOngA/URxXgBLA62IzAuRD+DbgBdFdzfhz4HlIaA87YPFgXVDWQ"
+			$s &= "M77H8DHP0aDJpYCnEcGetwz/4fyQgfPARWB7nd99h+2CBbNz0O4Px2TspG8geMVAgwV4wOw8M74r"
+			$s &= "JoBPQDqsOG9ApsEAskEmg46oUjeF8DIKHPcBzejGjG3NhSr2fj/W0SSv3sp2wTqMEelyzk0EGbi+"
+			$s &= "hAMwzvaX1q98i/4Z+glO4HhmYYC7kAAAAABJRU5ErkJggg=="
+		Case "Clone_Profile_Dark_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADv0lEQVR42u2WTWhcVRTHf+dlhpmg"
+			$s &= "TZ1xIWraLkQaW0RLixhcCBaVWIW4GKEoSqhkIfPuG6IUxEUfXShGSebNG1IcgqAYFwYsXWghVVCJ"
+			$s &= "38GPEkJR2mr9yCrTNlbzhjTvuLnVcZx8ESsiOZv37jnnnvO/93xdWKd1+p+QXJaN+Xy+Q0R8EbkX"
+			$s &= "uAo4q6pjquqXy+UTruumROQroAM4KSIj8/PzLwwNDV1YM4B8Pn+H4zhHgQ1NxBdEpCsIgvFCodAd"
+			$s &= "x/HhOtnXLS0tdw0ODlZXAsBpxnRdN+U4zuvW+TFV3Z7NZpOquh0YA65U1RHXdVPFYvEI8H3d9lsW"
+			$s &= "Fhaea7RpjNlpjHnJGNO7LADHce4GNgPfRVHUHYbhlO/7F8MwnIqi6EHgNLDZ6inwQYOJvb29vckG"
+			$s &= "3g1AL7B7WQBxHN9kf9+uVCq/1cvs+iiAqm6z7J8aTGxIJpPXrSQEiaaJIaJLARSRFlVFVRfVSyQS"
+			$s &= "WigUOlW13YK93X43eZ6XWxIAMGmV97iu2xaG4WxdfrSp6v02VMctoE1/YgHgXCaT+blarb4I5BrA"
+			$s &= "d6pqp11qUwDZbPadarX6rYjcCIx5nre/VqudSKVSHaraD1wPfJPJZN7N5XItqnpng4lXfN+/aIz5"
+			$s &= "BMhYx9eo6s3Aj8DHlwAsWoau6+4QkWPA1U3EM47j3FMsFr9wXfdhEXmtTjaeTqfv6+/v/6V+g+d5"
+			$s &= "OVV9AxgtlUoPLZmEAGEYfplIJHaIyCHgFHAOOCUih1T1Vus8BfQBZ4FPAZPNZnc3Ol91El6igYGB"
+			$s &= "H4AnlgBZA3aupYc7/+RAaFL7f1AmkzkSRdEV9dfftBX7vu/MzMzschxnj6ruAraJSEZVN4rIeVWt"
+			$s &= "isiUqk6IyFtBEEzYZoTneVtV9WmgXUQmgI/m5uber1Qq55edBa7rtovI48A+oH0VBz8DDDuOM1ws"
+			$s &= "FqcBMcYMAp6V14CxOI6fL5fLHzYNgTHmGRE5CRywzidV9VmgS0S2pNPptlKpJOl0uk1EtgBdVj5p"
+			$s &= "W/bBOI5PG2P2Azo9Pf0kcNz6SAEPOI4zbowp+77/l7CLMaYHeBmYF5ERYCgIgs9XenzXdW8TkTyw"
+			$s &= "F0iIyGNBELzqed4+VR1u1FfVA2EYHqy/gT77/0gQBD2rcW4r4bNSqfSoiPRY1lN2nry3yKDr830/"
+			$s &= "UQ9gK0AURYfXUgFzc3Nv2hN2ANRqtTPN9FR14+zs7LX1fSAJ0Nra2u153prK0M6DpJ2a88aYxfSS"
+			$s &= "f2tEtk3+65QARi+j/dFF3hu/rr/j1+k/Q78DHfiPE52Z8QEAAAAASUVORK5CYII="
 		Case "Rename_Profile"
 			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABRElEQVR42u2Xv04CQRDGfxgtiAUV"
 			$s &= "CqGxkJ6GmsSo8AL4UhbGhghvQEhIeAUfAfxXmQg0NCQmRu2wmUsmy63sZW+12S+ZYm/n5vtmd24y"
@@ -2512,6 +2791,27 @@ Func _ProfileIconData($sName)
 			$s &= "GUVRtEHyNoBrQ3iapke+7z9T1WM/u8aY1UIEkHyUXT8AuE/ySEQ2ADwgWV4FSK7meuKtMebQ87zL"
 			$s &= "qroOYL3UJXBdd3Ocv9PpHAA4+NPd9N87EZHsichCdoYr2j79tgKq2iLZKwneOvsTOrO8/QRpTOEl"
 			$s &= "BA7vwgAAAABJRU5ErkJggg=="
+		Case "Rename_Profile_Dark"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABXUlEQVR42u2Xu0oDQRSG/xO0EAur"
+			$s &= "GEMULbS3sRaEGF8gvkAeJ4XYiPoGIgi+go8Qr5VFYmMjCEHtPpsJLMPsJe4ONvt3O5yZ/zJnD7tS"
+			$s &= "jRoegC4woXqMga7PZwEBE0nrkfyNzWwzLwEAIiQbPLfx31feqNBhC9gHlqNEVaBxP93WV2D7z+fO"
+			$s &= "KwA4BL68jn8DOtEFpJDPMIzahEBP0q2kpZSSabQeAHrAtyu9Aaae+xGwEuUKgKME+RlgQN8jb0Zp"
+			$s &= "Qs/5pSNfBR7c2jOwVqq30go98osE+X0eeWkBXuznjrxZlLyUgAzyUYK8XdnrHRDw45ZOA84fgVal"
+			$s &= "EzYgYAbfeWHyLAELc4yIK0m7knYkPUk6kPQBnEjqpG0ys+NSgygwYl+ANrDohlAm8hIIfRHhlJt7"
+			$s &= "7nsld2b2DmxJ2sszZGbXoXPrL6KsJpxI2oiRgqRxkQQGTkQM8kH941PDxy/5Lw4zYQlEOwAAAABJ"
+			$s &= "RU5ErkJggg=="
+		Case "Rename_Profile_Dark_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACFUlEQVR42u1XwWoTURQ991GSuHFl"
+			$s &= "cdFWFBQEFfwErTbtVkT3ks2IzLzMF/gDAee9wIhR3JbiIu1aKsW1u0KpropZaBEKgk1CkpnjZiJx"
+			$s &= "iBjiTBXM2QyceTPn3Mu9970HzPC/Q9KE1nqF5EsAi1kKkWwppSrGmNejvBqzMHNxABCRJZIv0vzc"
+			$s &= "mLWLAGCtlSwNeJ5HAOfSvPrbNTCX1Y+01mfjOL5cLBbf1Wq140m/UxmJr5D8ICI7vV5v1/f9iydm"
+			$s &= "wHXdMsktAKcT6kIURTu+7y/kbsB13bKIbAI4lXq1EEVRNVcDWutVEdkaIz7Et9wMaK1XSW4CKAFo"
+			$s &= "AjhO9fxut9sNcjHged7aUFxEnlpr74rIg1HxOI5vNRqNr5m3YRJ5E0CJ5HNr7SPHcebjOH4sIgCw"
+			$s &= "3+/3y2EYfsl8DqTS3qjX647jOPOFQmEbwBUA+4PB4GYYhp8zH0RJ2ptJ2p8ZYx66rntGRLYBXJ1W"
+			$s &= "fKIa8DxvLSm0n8SVUj/ElVLL04hPWoTDgrMjkb8heQ3AnojcCILg07TtPImBIgAYY6qpyPdEZNkY"
+			$s &= "c3gim5HneRsArpO8NBTvdDpHWusnJH85dq2197Nqw3vJ871S6na73T4qlUobJO/kmgERSUfwNgiC"
+			$s &= "w2q1ep7kOoD1XA0YY16N44MgOABw8Ke76b93IiLZEpGl5AyXNT7+NgNKqQrJVh7iJCuzm9AMaXwH"
+			$s &= "mEzq7L5bfzMAAAAASUVORK5CYII="
 		Case "Remove_Profile"
 			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAq0lEQVR42u2XsQ2DMBBFn6IUFGxB"
 			$s &= "QRmizEHNBsyRiimYgJI5mCElAyQNHTQuXBAIxjJE+l+65su+/3TX2CBJ21QC40qVPoKaH4K2VjMX"
@@ -2524,6 +2824,19 @@ Func _ProfileIconData($sName)
 			$s &= "11qv3ss5+gakb0HXdVPn3GQcx3VZlgMRUVVVE6XUVAgxpGm69vHz3oC1dgGgl1LO3qaQcgagt9Yu"
 			$s &= "fP2OfoIAEAACQAAIAL/vNYyi6IKZT5h58xpTSvUATgFsDw6QpulmN5YkyZaIHv7WCaSUT845Yua4"
 			$s &= "bVvs2efRewNZlt0R0TURDXs0fgZwpbW+Dz+goI/0Atg5X47aq8GRAAAAAElFTkSuQmCC"
+		Case "Remove_Profile_Dark"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAvElEQVR42u2XPQ6CQBCFvzEWFtzC"
+			$s &= "gpaLUHsDzmHlKTgBJefgAjQWxnAApaB7NltQoIYfg5p5zSYvmzffzhS7Cy7XCEnK9F7ZEoUKLa9i"
+			$s &= "qNbmm9udBvJyRkYZMtJne1bvwHbCqWIgAmoza4MXATHQmlk9Jm9KB3KgApKelwQvHxu2+ggcwAEc"
+			$s &= "wAEc4PduQ+AA7ICm51XAHug+DmBmzYDXAee/G8E1rKkkzaxzmfqmO0m6z3gJ3yQd/UPjeqUHDI7z"
+			$s &= "k6/Cr2oAAAAASUVORK5CYII="
+		Case "Remove_Profile_Dark_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABF0lEQVR42u2XO07DQBCG/wUvUKTx"
+			$s &= "GSjSQuVTOF3CDUCy5PE1aL1rWQJRuCXpkltYvkAaCoQiOssiRSRbHhqniWIh5yFe+ze7mpmd+Xam"
+			$s &= "WC1g9N8lugQT0S2Ahy/C7pRSj3sBENEYwPDAl50opUabxpMfOwLf910hxBTATCk12CU5EU0BuMw8"
+			$s &= "0FrPtsV8ewesrgeCIOgzc6+qqnkcx0sA8DyvZ1lWXwixDMNw3iVf5w4w8xOATEp5tbY1+6zx4agA"
+			$s &= "h5YBMAAGwAAYgN/3GtZ1fSOlvMjzfLG2FUWR2bZ9WZbl6ugAURQtNm1JkqwAvPy5Ebw1q0tEvGed"
+			$s &= "1zbHaZsjTdN3x3HOAVwDONux8AeAe631s/kBGbXpE0w8UjLO8EsYAAAAAElFTkSuQmCC"
 	EndSwitch
 	Return $s
 EndFunc
