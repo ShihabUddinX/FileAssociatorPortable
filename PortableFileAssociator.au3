@@ -1,0 +1,2355 @@
+﻿#NoTrayIcon
+#Region ;**** Directives created by AutoIt3Wrapper_GUI ****
+#AutoIt3Wrapper_icon=..\..\App\AppInfo\appicon.ico
+#AutoIt3Wrapper_outfile=..\..\PortableFileAssociator.exe
+#AutoIt3Wrapper_Compression=4
+#AutoIt3Wrapper_res_requestedExecutionLevel=asInvoker
+#AutoIt3Wrapper_Res_Comment=Create custom portable file associations and context menus.
+#AutoIt3Wrapper_Res_Description=PortableFileAssociator
+#AutoIt3Wrapper_Res_ProductName=PortableFileAssociator
+#AutoIt3Wrapper_Res_CompanyName=ShihabUddinX
+#AutoIt3Wrapper_Res_Fileversion=3.0.0.0
+#AutoIt3Wrapper_Res_LegalCopyright=by Erik Pilsits
+#AutoIt3Wrapper_Res_Language=1033
+#AutoIt3Wrapper_AU3Check_Parameters=-q -d -w 1 -w 2 -w 3 -w 4 -w 5 -w 6
+#AutoIt3Wrapper_Run_Obfuscator=y
+#Obfuscator_Parameters=/sf=1 /sv=1 /om /cs=0 /cn=0
+#EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
+
+#include <_RegFunc.au3>
+#include <Constants.au3>
+#include <ButtonConstants.au3>
+#include <GUIConstantsEx.au3>
+#include <WindowsConstants.au3>
+#include <GuiListView.au3>
+#include <ListViewConstants.au3>
+#include <GuiToolbar.au3>
+#include <EditConstants.au3>
+#include <UpDownConstants.au3>
+#include <ComboConstants.au3>
+#include <ListBoxConstants.au3>
+#include <StaticConstants.au3>
+#include <Process.au3>
+#include <WinAPI.au3>
+#include <GuiMenu.au3>
+#include <String.au3>
+
+Opt("GUIOnEventMode", 1) ; enable GUI events
+Opt("GUIEventOptions", 1) ; minimize only sends notification
+Opt("TrayMenuMode", 3) ; no tray menu, no auto-check/uncheck on user items
+Opt("TrayOnEventMode", 1) ; enable tray events
+Opt("MustDeclareVars", 1) ; must declare variables before use
+Opt("WinTitleMatchMode", 3) ; exact title match
+
+Global Const $version = "3.0.0.0"
+
+#Region Commandline
+Global $wndMSG, $wndMSG_msg = -1
+
+$wndMSG = _WinAPI_RegisterWindowMessage("PFA_CustomWindowMessage")
+
+If _CreateMutex() <> 0 Then
+	; second instance = commandline mode
+	If $CmdLine[0] > 0 Then
+		Switch $CmdLine[1]
+			Case "exit"
+				$wndMSG_msg = 0
+		EndSwitch
+		If $wndMSG_msg <> -1 Then _SendMessage(WinGetHandle("PortableFileAssociator"), $wndMSG, $wndMSG_msg, 0)
+	EndIf
+	Exit
+EndIf
+#EndRegion Commandline
+#Region Init
+Global Const $blacklist[7] = ["drives", "files", "folders", "recycle", "exe", "com", ""]
+Global Const $aProfileINIs[4] = ["_assoc.ini", "_state.ini", "_types.ini", "_sendto.ini"]
+Global Const $settingsdir = @ScriptDir & "\Data\settings"
+Global $state, $iconchange, $rebuild, $onclose, $aMouse
+
+Global $contextGUI, $nGUI, $Button1, $Button2, $Button3, $Button4, $Button6, $Button8
+Global $nProfile, $nNew, $nClone, $nRename, $nRemove
+Global $refreshnow, $rebuildonchange, $trayexit, $trayonclose
+Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
+Global $iAssocIcon, $iAssocIconBrowse, $iAssocIconIndex, $iAssocIconPreview
+Global $tGUI, $icondisplay, $ftypelist, $ftypeAssocFilter, $defassoclist, $hideext, $copyhost, $hostoverride, $ftypeicon, $iconbrowse, $iconindex, $indexupdown, $savetypes, $donetypes
+Global $showNewMenu, $newMenuName, $useTemplate, $templateFile
+Global $sGUI, $hsLV, $sAdd, $sRemove, $sClear, $sSave, $sDone, $sDummy, $pWndProc = 0, $oldWndProc = 0, $sChanges
+
+Global $aDefaultAssociations[1] = [0], $aDropFiles[1] = [0]
+
+Global Const $PFA_MAX_PATH = 260
+Global Const $PFA_SPI_SETNONCLIENTMETRICS = 42
+Global Const $PFA_WM_SETTINGCHANGE = 0x1A
+Global Const $PFA_WM_DROPFILES = 0x233
+Global Const $PFA_HWND_BROADCAST = 0xFFFF
+Global Const $PFA_SHCNE_ASSOCCHANGED = 0x8000000
+Global Const $PFA_SHCNF_FLUSH = 0x1000
+Global Const $PFA_SHCNF_IDLIST = 0x0
+
+Global Const $drive = StringLeft(@ScriptDir, 2) ; get portable drive letter
+; get some version info
+Global $fVistaOrBetter = False, $fXPOrBetter = False
+_OSVersion()
+
+GUIRegisterMsg($WM_COMMAND, "_MY_WM_COMMAND")
+GUIRegisterMsg($wndMSG, "_MY_CUSTOM_MSG")
+GUIRegisterMsg(0x16, "_MY_WM_ENDSESSION") ; WM_ENDSESSION
+
+; create missing directories
+If Not FileExists(@ScriptDir & "\Data\settings") Then DirCreate(@ScriptDir & "\Data\settings")
+If Not FileExists(@ScriptDir & "\Data\registry") Then DirCreate(@ScriptDir & "\Data\registry")
+If Not FileExists(@ScriptDir & "\Data\newitems") Then DirCreate(@ScriptDir & "\Data\newitems")
+
+; convert old INIs
+If FileExists($settingsdir & "\assoc.ini") Then
+	FileMove($settingsdir & "\assoc.ini", $settingsdir & "\default_assoc.ini")
+	FileMove($settingsdir & "\state.ini", $settingsdir & "\default_state.ini")
+	FileMove($settingsdir & "\icons.ini", $settingsdir & "\default_types.ini")
+EndIf
+
+; get current profile and set active (create a default if missing)
+Global Const $profileini = $settingsdir & "\profile.ini"
+Global $curProfile = IniRead($profileini, "profile", "active", "__error__")
+If $curProfile = "__error__" Or Not FileExists($settingsdir & "\" & $curProfile & "_assoc.ini") Then $curProfile = _GetNextProfile()
+Global $associni, $stateini, $typesini, $sendtoini
+_SetProfile($curProfile)
+
+FileChangeDir(@ScriptDir) ; set working directory
+
+; operating mode
+_OperatingMode()
+; if the GUI is running...
+_SetTrayStatus()
+#EndRegion Init
+; GUI loop
+While 1
+	Sleep(1000)
+WEnd
+
+#Region Misc Functions
+;=======================================================================================
+; Misc Functions
+;=======================================================================================
+
+Func _OperatingMode()
+	Local $arg1 = "", $arg2 = ""
+
+	If $CmdLine[0] > 2 Then ; max commandline args
+		MsgBox(16, "Error", "Too many commandline arguments.")
+		Exit
+	EndIf
+	If $CmdLine[0] = 0 Then
+		; check for INI arguments
+		Local $inicommands = IniRead($profileini, "profile", "commandline", "")
+		If $inicommands <> "" Then
+			Local $aCmd = StringSplit(StringStripWS($inicommands, 3), " ")
+			$arg1 = $aCmd[1] ; there's at least one argument if $inicommands is not ""
+			If $aCmd[0] > 1 Then $arg2 = $aCmd[2] ; possible profile
+		EndIf
+	Else ; commandline args
+		$arg1 = $CmdLine[1]
+		If $CmdLine[0] > 1 Then $arg2 = $CmdLine[2]
+	EndIf
+	If $arg1 Then
+		If $arg2 And Not FileExists($settingsdir & "\" & $arg2 & "_assoc.ini") Then
+			; passed invalid profile
+			MsgBox(16, "Error", "Invalid profile.")
+			Exit
+		EndIf
+		Switch $arg1
+			Case "add_gui"
+				If $arg2 Then _SetProfile($arg2)
+				_InitAllGUIs("add_gui")
+			Case "add"
+				If $arg2 Then _SetProfile($arg2)
+				_FileAssociations("add")
+				Exit
+			Case "remove"
+				_FileAssociations("remove")
+				Exit
+			Case Else
+				MsgBox(16, "Error", "Invalid command.")
+				Exit
+		EndSwitch
+	Else
+		; if no arguments, start GUI
+		_InitAllGUIs()
+	EndIf
+EndFunc
+
+Func _CreateMutex()
+	DllCall("kernel32.dll", "int", "CreateMutex", _
+							"ptr", 0, _
+							"int", 0, _
+							"str", @ScriptName _
+							)
+	Local $ret = DllCall("kernel32.dll", "int", "GetLastError")
+	Return $ret[0]
+EndFunc
+
+Func _MY_CUSTOM_MSG($hWnd, $Msg, $wParam, $lParam)
+	#forceref $hWnd, $lParam
+	Switch $Msg
+		Case $wndMSG
+			Switch $wParam
+				Case 0
+					_Exit()
+			EndSwitch
+	EndSwitch
+EndFunc
+
+Func _ReadINISections()
+	Local $section = IniReadSectionNames($associni) ; get sections, INI must have at least 1 section
+	If @error Then
+		MsgBox(0, "Error", "Error reading INI file.")
+		_Exit()
+	Else
+		Return $section
+	EndIf
+EndFunc
+
+Func _ReadStateINI()
+	; get current state, 0 = not installed
+	$state = Number(IniRead($stateini, "state", "state", "-1"))
+	If $state = -1 Then
+		IniWrite($stateini, "state", "state", "0")
+		$state = 0
+	EndIf
+	; get icon refresh setting, 0 = do not refresh (default)
+	$rebuild = Number(IniRead($stateini, "state", "refresh", "-1"))
+	If $rebuild = -1 Then
+		IniWrite($stateini, "state", "refresh", "0")
+		$rebuild = 0
+	EndIf
+	; get OnClose setting, 1 = remove associations on close (default)
+	$onclose = Number(IniRead($stateini, "state", "onclose", "-1"))
+	If $onclose = -1 Then
+		IniWrite($stateini, "state", "onclose", "1")
+		$onclose = 1
+	EndIf
+EndFunc
+
+Func _PDRIVEToDrive($path)
+	Return StringReplace($path, "PDRIVE", $drive, 0, 1)
+EndFunc
+
+Func _GetExePath($command)
+	Local $exepath
+
+	If StringLeft($command, 1) = '"' Then ; first character is a quote
+		$exepath = StringLeft($command, StringInStr($command, '"', 0, 2))
+	Else ; first whitespace is end of command
+		$exepath = StringLeft($command, StringInStr($command, ' ', 0, 1) - 1)
+		If $exepath = "" Then ; no spaces = no extra args
+			$exepath = $command
+		EndIf
+	EndIf
+	Return $exepath
+EndFunc
+
+Func _GetExeName($command)
+	Local $exename
+
+	$exename = _GetExePath($command) ; get EXE path
+	$exename = StringReplace($exename, '"', '') ; remove any quotes
+	$exename = StringTrimLeft($exename, StringInStr($exename, "\", 0, -1)) ; get EXE name
+	Return $exename
+EndFunc
+
+Func _PathGetRelative2($sFrom, $sTo)
+	Local $asFrom, $asTo, $iDiff, $sRelPath, $i
+
+	If StringRight($sFrom, 1) <> "\" Then $sFrom &= "\" ; add missing trailing \ to $sFrom path
+	If StringRight($sTo, 1) <> "\" Then $sTo &= "\" ; add trailing \ to $sTo
+	If $sFrom = $sTo Then Return SetError(1, 0, StringTrimRight($sTo, 1)) ; $sFrom equals $sTo
+	$asFrom = StringSplit($sFrom, "\")
+	$asTo = StringSplit($sTo, "\")
+	If $asFrom[1] <> $asTo[1] Then Return SetError(2, 0, StringTrimRight($sTo, 1)) ; drives are different, rel path not possible
+	; create rel path
+	$i = 2
+	$iDiff = 1
+	While 1
+		If $asFrom[$i] <> $asTo[$i] Then
+			$iDiff = $i
+			ExitLoop
+		EndIf
+		$i += 1
+	WEnd
+	$i = 1
+	$sRelPath = ""
+	For $j = 1 To $asTo[0]
+		If $i >= $iDiff Then
+			$sRelPath &= "\" & $asTo[$i]
+		EndIf
+		$i += 1
+	Next
+	$sRelPath = StringTrimLeft($sRelPath, 1)
+	$i = 1
+	For $j = 1 To $asFrom[0]
+		If $i > $iDiff Then
+			$sRelPath = "..\" & $sRelPath
+		EndIf
+		$i += 1
+	Next
+	If StringRight($sRelPath, 1) = "\" Then $sRelPath = StringTrimRight($sRelPath, 1) ; remove trailing \
+	If StringLeft($sRelPath, 3) <> "..\" Then $sRelPath = ".\" & $sRelPath
+	Return $sRelPath
+EndFunc ;  ==> _PathGetRelative2
+
+Func _PathFull2($sRelativePath, $sBasePath = @WorkingDir)
+	If Not $sRelativePath Or $sRelativePath = "." Then Return $sBasePath
+
+	; Normalize slash direction.
+	Local $sFullPath = StringReplace($sRelativePath, "/", "\") ; Holds the full path (later, minus the root)
+	Local Const $sFullPathConst = $sFullPath ; Holds a constant version of the full path.
+	Local $sPath ; Holds the root drive/server
+	Local $bRootOnly = StringLeft($sFullPath, 1) = "\" And StringMid($sFullPath, 2, 1) <> "\"
+
+	; Check for UNC paths or local drives.  We run this twice at most.  The
+	; first time, we check if the relative path is absolute.  If it's not, then
+	; we use the base path which should be absolute.
+	For $i = 1 To 2
+		$sPath = StringLeft($sFullPath, 2)
+		If $sPath = "\\" Then
+			$sFullPath = StringTrimLeft($sFullPath, 2)
+			$sPath &= StringLeft($sFullPath, StringInStr($sFullPath, "\") - 1)
+			ExitLoop
+		ElseIf StringRight($sPath, 1) = ":" Then
+			$sFullPath = StringTrimLeft($sFullPath, 2)
+			ExitLoop
+		Else
+			$sFullPath = $sBasePath & "\" & $sFullPath
+		EndIf
+	Next
+
+	; If this happens, we've found a funky path and don't know what to do
+	; except for get out as fast as possible.  We've also screwed up our
+	; variables so we definitely need to quit.
+	If $i = 3 Then Return ""
+
+	; Build an array of the path parts we want to use.
+	Local $aTemp = StringSplit($sFullPath, "\")
+	Local $aPathParts[$aTemp[0]], $j = 0
+	For $i = 2 To $aTemp[0]
+		If $aTemp[$i] = ".." Then
+			If $j Then $j -= 1
+		ElseIf Not ($aTemp[$i] = "" And $i <> $aTemp[0]) And $aTemp[$i] <> "." Then
+			$aPathParts[$j] = $aTemp[$i]
+			$j += 1
+		EndIf
+	Next
+
+	; Here we re-build the path from the parts above.  We skip the
+	; loop if we are only returning the root.
+	$sFullPath = $sPath
+	If Not $bRootOnly Then
+		For $i = 0 To $j - 1
+			$sFullPath &= "\" & $aPathParts[$i]
+		Next
+	Else
+		$sFullPath &= $sFullPathConst
+		; If we detect more relative parts, remove them by calling ourself recursively.
+		If StringInStr($sFullPath, "..") Then $sFullPath = _PathFull2($sFullPath)
+	EndIf
+
+	; Clean up the path.
+	While StringInStr($sFullPath, ".\")
+		$sFullPath = StringReplace($sFullPath, ".\", "\")
+	WEnd
+	Return $sFullPath
+EndFunc   ;==>_PathFull2
+
+Func _ConvertPaths()
+	Local $i, $sections, $command
+
+	$sections = _ReadINISections()
+	If IsArray($sections) Then
+		; remove old keys, convert paths
+		For $i = 1 To $sections[0]
+			; remove 'default' key from _assoc.ini
+			IniDelete($associni, $sections[$i], "default")
+			; convert PDRIVE tokens and relative paths
+			$command = IniRead($associni, $sections[$i], "command", "")
+			If StringInStr($command, "PDRIVE", 1) Then
+				$command = _PDRIVEToDrive($command)
+				$command = _GetRelCommand($command)
+				IniWrite($associni, $sections[$i], "command", "'" & $command & "'")
+			EndIf
+		Next
+	EndIf
+EndFunc
+
+Func _CommandSplit($command)
+	Local $asCmd[2]
+
+	$asCmd[0] = _GetExePath($command)
+	$asCmd[1] = StringTrimLeft($command, StringLen($asCmd[0]) + 1)
+	Return $asCmd
+EndFunc
+
+Func _GetRelCommand($command)
+	Local $aCmd[1]
+
+	$aCmd = _CommandSplit($command)
+	$aCmd[0] = StringReplace($aCmd[0], '"', '')
+	If StringInStr($aCmd[0], ":\") Then
+		; full path, get relative path
+		$aCmd[0] = _PathGetRelative2(@ScriptDir, $aCmd[0])
+	; else not a full path
+	EndIf
+	If StringInStr($aCmd[0], ' ') Then $aCmd[0] = '"' & $aCmd[0] & '"'
+	$command = $aCmd[0]
+	If $aCmd[1] <> "" Then $command &= ' ' & $aCmd[1]
+	Return $command
+EndFunc
+
+Func _GetFullCommand($command)
+	Local $aCmd[2]
+
+	$aCmd = _CommandSplit($command)
+	$aCmd[0] = StringReplace($aCmd[0], '"', '')
+	If StringInStr($aCmd[0], ".\") Then
+		; relative path
+		$aCmd[0] = _PathFull2(@ScriptDir & "\" & $aCmd[0])
+	; else full path, leave as is
+	EndIf
+	If StringInStr($aCmd[0], ' ') Then $aCmd[0] = '"' & $aCmd[0] & '"'
+	$command = $aCmd[0]
+	If $aCmd[1] <> "" Then $command &= ' ' & $aCmd[1]
+	Return $command
+EndFunc
+
+Func _GetFullIcon($icon)
+	Local $aIcon[2]
+
+	$aIcon = StringSplit(StringReplace($icon, '"', ''), ",") ; remove quotes and split
+	If StringInStr($aIcon[1], ".\") Then
+		; relative path
+		$aIcon[1] = _PathFull2(@ScriptDir & "\" & $aIcon[1])
+	; else full path, leave as is
+	EndIf
+	$icon = $aIcon[1]
+	If $aIcon[0] > 1 Then $icon &= "," & $aIcon[2]
+	Return $icon
+EndFunc
+
+Func _SetForegroundWindow($hwnd)
+	DllCall("user32.dll", "int", "SetForegroundWindow", "hwnd", $hwnd)
+EndFunc
+
+Func _OSVersion()
+	Local $OSVERSIONINFOEXW = "dword dwOSVersionInfoSize;dword dwMajorVersion;dword dwMinorVersion;dword dwBuildNumber;dword dwPlatformId;" & _
+								"wchar szCSDVersion[128];ushort wServicePackMajor;ushort wServicePackMinor;ushort wSuiteMask;byte wProductType;byte wReserved"
+	Local $OSVI = DllStructCreate($OSVERSIONINFOEXW)
+	DllStructSetData($OSVI, "dwOSVersionInfoSize", DllStructGetSize($OSVI))
+	DllCall("kernel32.dll", "int", "GetVersionExW", "ptr", DllStructGetPtr($OSVI))
+	If (DllStructGetData($OSVI, "dwMajorVersion") >= 6) Then $fVistaOrBetter = True
+	If (DllStructGetData($OSVI, "dwMajorVersion") >= 5) And (DllStructGetData($OSVI, "dwMinorVersion") >= 1) Then $fXPOrBetter = True
+EndFunc
+
+Func _VersionCheckInternal($ver, $fOlder = False)
+	; check if internal version against var
+	Local $aInternal = StringSplit($version, ".")
+	Local $aVer = StringSplit($ver, ".")
+	ReDim $aVer[$aInternal[0] + 1] ; make sure they are the same length
+	If $fOlder Then
+		; check internal version is older
+		For $i = 1 To $aInternal[0]
+			If Number($aInternal[$i]) < Number($aVer[$i]) Then Return True
+		Next
+	Else
+		; check internal version is newer
+		For $i = 1 To $aInternal[0]
+			If Number($aInternal[$i]) > Number($aVer[$i]) Then Return True
+		Next
+	EndIf
+	Return False
+EndFunc
+
+
+Func _WinAPI_SHGetFolderPath($nFolder, $dwFlags = 0) ; $SHGFP_TYPE_CURRENT
+	Local $path = DllStructCreate("wchar[260]")
+	Local $folder = DllCall("shell32.dll", "int", "SHGetFolderPathW", _
+											"hwnd", 0, _
+											"int", $nFolder, _
+											"ptr", 0, _
+											"dword", $dwFlags, _
+											"ptr", DllStructGetPtr($path) _
+											)
+	If $folder[0] < 0 Then Return SetError(1, "", "")
+	Return DllStructGetData($path, 1)
+EndFunc
+#EndRegion Misc Functions
+#Region GUI Creation Functions (all GUIs)
+;=======================================================================================
+; GUI Creation Functions (all GUIs)
+;=======================================================================================
+
+Func _InitAllGUIs($guimode = "")
+	TraySetClick(8) ; show menu only on right-click
+	TraySetState(1) ; show tray icon
+
+	If $state = 1 Then
+		TraySetToolTip("PortableFileAssociator (enabled)" & @CRLF & "Profile:  " & $curProfile)
+	Else
+		TraySetToolTip("PortableFileAssociator (disabled)")
+	EndIf
+
+	; ===== message GUI for context menu, active but off screen
+	$contextGUI = GUICreate("", 1, 1, -1000, 0, -1, $WS_EX_TOOLWINDOW)
+	GUISetState()
+#Region	===== main GUI & tray
+	; Main window: wider layout with clearer grouping and more comfortable spacing.
+	$nGUI = GUICreate("PortableFileAssociator", 310, 545, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU, $WS_MINIMIZEBOX))
+	GUISetFont(9, 400, 0, "Segoe UI", $nGUI)
+
+	; Primary actions
+	$Button1 = GUICtrlCreateButton("Add File Associations", 16, 14, 278, 42)
+	$Button2 = GUICtrlCreateButton("Remove File Associations", 16, 64, 278, 42)
+
+	; Configuration shortcuts
+	GUICtrlCreateGroup(" Configuration ", 16, 122, 278, 112)
+	$Button3 = GUICtrlCreateButton("Associations", 28, 151, 82,  34)
+	$Button6 = GUICtrlCreateButton("File Types", 114, 151, 82,  34)
+	$Button8 = GUICtrlCreateButton("SendTo", 200, 151, 82,  34)
+	GUICtrlCreateGroup ("",-99,-99,1,1)  ;close group
+
+	; System restore
+	GUICtrlCreateGroup(" System Restore ", 16, 250, 278, 76)
+	$Button4 = GUICtrlCreateButton("Create System Restore Point", 30, 275, 250, 34)
+	GUICtrlSetTip(-1, "Create a System Restore Point.")
+	GUICtrlCreateGroup ("",-99,-99,1,1)  ;close group
+
+	; Profile management
+	GUICtrlCreateGroup(" Profile ", 16, 342, 278, 142)
+	$nProfile = GUICtrlCreateCombo("", 30, 366, 250, 28, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	$nNew = GUICtrlCreateIcon("shell32.dll", -101, 55, 421, 24, 24)
+	GUICtrlSetTip(-1, "New profile")
+	GUICtrlSetCursor(-1, 0)
+	$nClone = GUICtrlCreateIcon("shell32.dll", -135, 112, 421, 24, 24)
+	GUICtrlSetTip(-1, "Clone profile")
+	GUICtrlSetCursor(-1, 0)
+	$nRename = GUICtrlCreateIcon("shell32.dll", -134, 169, 421, 24, 24)
+	GUICtrlSetTip(-1, "Rename profile")
+	GUICtrlSetCursor(-1, 0)
+	$nRemove = GUICtrlCreateIcon("shell32.dll", -132, 226, 421, 24, 24)
+	GUICtrlSetTip(-1, "Remove profile")
+	GUICtrlSetCursor(-1, 0)
+	GUICtrlCreateGroup ("",-99,-99,1,1)  ;close group
+	GUICtrlCreateLabel("Profile actions", 30, 450, 250, 18)
+	GUICtrlSetFont(-1, 8.5, 400, 0, "Segoe UI")
+	GUICtrlSetColor(-1, 0x666666)
+
+	GUICtrlCreateLabel("v" & $version, 16, 510)
+	GUICtrlSetFont(-1, 8.5)
+	GUICtrlSetState(-1, $GUI_DISABLE)
+
+	; GUI events
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_Exit")
+	GUISetOnEvent($GUI_EVENT_MINIMIZE, "_HideMainGUI")
+	GUISetOnEvent($GUI_EVENT_RESTORE, "_RestoreMainGUI")
+
+	; tray menu
+	$rebuildonchange = TrayCreateItem("Rebuild icon cache on change")
+	$refreshnow = TrayCreateItem("Refresh icons now")
+	TrayCreateItem("")
+	$trayonclose = TrayCreateItem("Remove associations on close")
+	TrayCreateItem("")
+	TrayCreateItem("")
+	$trayexit = TrayCreateItem("Exit")
+
+	; tray events
+	TraySetOnEvent($TRAY_EVENT_PRIMARYDOWN, "_RestoreMainGUI")
+	TrayItemSetOnEvent($trayonclose, "_ToggleOnClose")
+	TrayItemSetOnEvent($rebuildonchange, "_ToggleRebuildOnChange")
+	TrayItemSetOnEvent($refreshnow, "_RefreshNow")
+	TrayItemSetOnEvent($trayexit, "_Exit")
+
+	; control events
+	GUICtrlSetOnEvent($Button1, "_AddAssociations")
+	GUICtrlSetOnEvent($Button2, "_RemoveAssociations")
+	GUICtrlSetOnEvent($Button3, "_EditAssocINI")
+	GUICtrlSetOnEvent($Button4, "_CreateRestorePoint")
+	GUICtrlSetOnEvent($Button6, "_TypesEditGUI")
+	GUICtrlSetOnEvent($Button8, "_SendToGUI")
+	GUICtrlSetOnEvent($nProfile, "_SetProfileEvent")
+	GUICtrlSetOnEvent($nNew, "_NewProfile")
+	GUICtrlSetOnEvent($nClone, "_CloneProfile")
+	GUICtrlSetOnEvent($nRename, "_RenameProfile")
+	GUICtrlSetOnEvent($nRemove, "_RemoveProfile")
+
+	; set button states
+	_ActionButtonsState() ; action buttons
+#EndRegion ===== main GUI & tray
+#Region	===== association GUI
+	$aGUI = GUICreate("Edit Associations", 550, 315, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	; association list and editor labels
+	$lSec = GUICtrlCreateList("", 10, 34, 108, 245, BitOR($LBS_SORT, $WS_HSCROLL, $WS_VSCROLL))
+	GUICtrlCreateLabel("Associations", 10, 12, 100, 18)
+	GUICtrlCreateLabel("Association Name", 136, 66, 110, 18)
+	GUICtrlCreateLabel("Associated Types", 286, 66, 120, 18)
+	GUICtrlCreateLabel("Context-menu title", 136, 119, 140, 18)
+	GUICtrlCreateLabel("Context-menu icon", 136, 171, 140, 18)
+	GUICtrlCreateLabel("Icon index", 458, 171, 70, 18)
+	GUICtrlCreateLabel("Command", 136, 226, 70, 18)
+	GUICtrlCreateLabel("Use %1 to pass the selected file, folder or drive.", 136, 284, 340, 16)
+	GUICtrlSetFont(-1, 8, 400, 2)
+	GUICtrlSetColor(-1, 0x666666)
+	; editor inputs
+	$iSec = GUICtrlCreateInput("", 136, 86, 130, 23)
+	GUICtrlSetTip(-1, "Internal association name. Cannot include ',' or '*'.")
+	$iMode = GUICtrlCreateInput("", 286, 86, 235, 23)
+	GUICtrlSetTip(-1, "Target types: drives|files|folders|recycle|extensions (for example: txt|md).")
+	$iTitle = GUICtrlCreateInput("", 136, 139, 385, 23)
+	GUICtrlSetTip(-1, "Text displayed in the Windows context menu.")
+	$iAssocIcon = GUICtrlCreateInput("", 136, 191, 250, 23)
+	GUICtrlSetTip(-1, "Optional icon file. Supports ICO, EXE and DLL files; relative paths are portable.")
+	$iAssocIconBrowse = GUICtrlCreateButton("Browse...", 392, 190, 60, 25)
+	$iAssocIconIndex = GUICtrlCreateInput("0", 458, 191, 42, 23)
+	GUICtrlSetTip(-1, "Icon resource index. Usually 0 for ICO files.")
+	$iAssocIconPreview = GUICtrlCreateIcon("", "", 506, 187, 32, 32)
+	$iCommand = GUICtrlCreateInput("", 136, 248, 385, 23)
+	; state and action buttons
+	$disChk = GUICtrlCreateCheckbox("Disabled", 286, 112, 90, 20)
+	GUICtrlSetTip(-1, "Disable this association without deleting its settings.")
+	$cBtn = GUICtrlCreateButton("Clear", 136, 24, 55, 27)
+	$sBtn = GUICtrlCreateButton("Save", 202, 24, 55, 27)
+	$delBtn = GUICtrlCreateButton("Delete", 268, 24, 55, 27)
+	$dBtn = GUICtrlCreateButton("Done", 456, 24, 65, 27)
+	$hBtn = GUICtrlCreateButton("?", 510, 8, 20, 18)
+	GUICtrlSetCursor(-1, 4)
+	$bBtn = GUICtrlCreateButton("...", 526, 248, 20, 23)
+
+	; control events
+	GUICtrlSetOnEvent($lSec, "_GetAssocInfo") ; click a list item
+	GUICtrlSetOnEvent($cBtn, "_RefreshAssocGUI") ; clear button
+	GUICtrlSetOnEvent($sBtn, "_SaveAssocSection") ; save button
+	GUICtrlSetOnEvent($delBtn, "_DeleteAssocSection") ; delete button
+	GUICtrlSetOnEvent($dBtn, "_aGUIClose") ; done button
+	GUICtrlSetOnEvent($hBtn, "_AssocHelp") ; help button
+	GUICtrlSetOnEvent($bBtn, "_BrowseCommand") ; browse command target
+	GUICtrlSetOnEvent($iAssocIconBrowse, "_BrowseAssocIcon") ; browse context-menu icon
+#EndRegion ===== association GUI
+#Region	===== types GUI
+	$tGUI = GUICreate("Configure File Types", 465, 340, -1, -1, $WS_CAPTION, $WS_EX_TOOLWINDOW, $nGUI)
+
+	GUICtrlCreateLabel("Association:", 10, 13)
+	$ftypeAssocFilter = GUICtrlCreateCombo("", 78, 8, 180, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlSetTip(-1, "Filter the file types by their association name. Choose All to show every extension.")
+	GUICtrlCreateLabel("File Type:", 10, 48)
+	$ftypelist = GUICtrlCreateCombo("", 62, 43, 78, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlCreateLabel("Default PFA Association:", 10, 93)
+	$defassoclist = GUICtrlCreateCombo("", 10, 113, 200, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlSetTip(-1, "Default PFA association for the selected extension (dbl-click action).")
+	$hideext = GUICtrlCreateCheckbox("Hide extension", 160, 40)
+	GUICtrlSetTip(-1, "Prevent this extension from displaying in Explorer.")
+	$copyhost = GUICtrlCreateCheckbox("Copy Host Associations", 160, 60)
+	GUICtrlSetTip(-1, "Copy any associations present on the Host computer for this extension.")
+	$hostoverride = GUICtrlCreateCheckbox("Host Precedence", 180, 80)
+	GUICtrlSetTip(-1, "If host default association exists, it will take precedence over the PFA default.")
+	GUICtrlCreateLabel("", 312, 38, 52, 52, $SS_BLACKFRAME) ; icon frame
+	$icondisplay = GUICtrlCreateIcon("", "", 314, 40, 48, 48)
+	GUICtrlCreateLabel("Index:", 379, 47)
+	$iconindex = GUICtrlCreateInput("0", 379, 67, 55, 23)
+	$indexupdown = GUICtrlCreateUpdown($iconindex, BitOR($UDS_ALIGNRIGHT, $UDS_NOTHOUSANDS))
+	GUICtrlSetTip(-1, "Icon index in a multi-icon file (exe or dll).")
+	GUICtrlSetLimit(-1, 0, -10000)
+	GUICtrlCreateLabel("Iconfile (exe, dll, or ico):", 10, 146)
+	$ftypeicon = GUICtrlCreateInput("", 10, 166, 400, 20)
+	GUICtrlSetTip(-1, "Icon to display when a Host computer association is not the default action.")
+	$iconbrowse = GUICtrlCreateButton("...", 415, 170, 20, 16)
+	$showNewMenu = GUICtrlCreateCheckbox("Show in New menu in context menu", 10, 196, 245, 20)
+	GUICtrlSetTip(-1, "Add this file type to Explorer right-click > New submenu.")
+	GUICtrlCreateLabel("New menu name:", 10, 223)
+	$newMenuName = GUICtrlCreateInput("", 105, 219, 345, 22)
+	GUICtrlSetTip(-1, "Display name shown under right-click > New. Default: PFA_<extension> File.")
+	$useTemplate = GUICtrlCreateCheckbox("Use template file", 10, 253, 150, 20)
+	GUICtrlSetTip(-1, "Use Data\newitems\{UPPERCASE_EXTENSION}.{extension}. No custom template selection.")
+	$templateFile = GUICtrlCreateInput("", 10, 278, 440, 22, $ES_READONLY)
+	GUICtrlSetTip(-1, "PFA automatically looks for this exact filename inside Data\newitems.")
+	$savetypes = GUICtrlCreateButton("Save File Type", 117, 307, 105, 25)
+	$donetypes = GUICtrlCreateButton("Done", 243, 307, 75, 25)
+	; control events
+	GUICtrlSetOnEvent($ftypeAssocFilter, "_FtypeAssocFilterChange")
+	GUICtrlSetOnEvent($ftypelist, "_FtypeChange")
+	GUICtrlSetOnEvent($copyhost, "_CopyHostToggle")
+	GUICtrlSetOnEvent($iconbrowse, "_BrowseIcon")
+	GUICtrlSetOnEvent($savetypes, "_SaveTypes")
+	GUICtrlSetOnEvent($donetypes, "_tGUIClose")
+	GUICtrlSetOnEvent($showNewMenu, "_ShowNewToggle")
+	GUICtrlSetOnEvent($useTemplate, "_TemplateToggle")
+	GUICtrlSetOnEvent($indexupdown, "_GetIcon")
+#EndRegion ===== types GUI
+#Region ===== SendTo GUI
+	$sGUI = GUICreate("SendTo Configuration", 600, 315, -1, -1, $WS_CAPTION, $WS_EX_TOOLWINDOW, $nGUI)
+	$hsLV = _GUICtrlListView_Create($sGUI, "Shortcut Name|Path", 5, 5, 590, 250, BitOR($WS_BORDER, $LVS_NOSORTHEADER, $LVS_REPORT, $LVS_SHOWSELALWAYS), _
+																					$WS_EX_ACCEPTFILES)
+	_GUICtrlListView_SetExtendedListViewStyle($hsLV, BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT), BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT))
+	_GUICtrlListView_SetColumnWidth($hsLV, 0, 130)
+	_GUICtrlListView_SetColumnWidth($hsLV, 1, $LVSCW_AUTOSIZE_USEHEADER)
+	; subclass the control so we can get our dropfiles message
+	$pWndProc = DllCallbackRegister("_MY_WINDOW_PROC", "int", "hwnd;uint;wparam;lparam")
+	$oldWndProc = _WinAPI_SetWindowLong($hsLV, $GWL_WNDPROC, DllCallbackGetPtr($pWndProc))
+	GUICtrlCreateLabel("Click Add... or drag-and-drop to add SendTo targets.", 6, 260)
+	GUICtrlSetFont(-1, 8, 400, 2)
+	GUICtrlSetColor(-1, 0x555555)
+	$sAdd = GUICtrlCreateButton("Add...", 5, 285, 50, 25)
+	$sRemove = GUICtrlCreateButton("Remove", 60, 285, 50, 25)
+	$sClear = GUICtrlCreateButton("Clear", 115, 285, 50, 25)
+	$sSave = GUICtrlCreateButton("Save", 490, 285, 50, 25)
+	$sDone = GUICtrlCreateButton("Done", 545, 285, 50, 25)
+	$sDummy = GUICtrlCreateDummy()
+
+	GUICtrlSetOnEvent($sAdd, "_AddSendTo")
+	GUICtrlSetOnEvent($sClear, "_ClearSendTo")
+	GUICtrlSetOnEvent($sRemove, "_RemoveSendTo")
+	GUICtrlSetOnEvent($sSave, "_SaveSendTo")
+	GUICtrlSetOnEvent($sDummy, "_sDropAction")
+	GUICtrlSetOnEvent($sDone, "_sCloseGUI")
+#EndRegion ===== SendTo GUI
+
+	; populate profile list
+	_PopulateProfiles()
+
+	GUISwitch($nGUI) ; switch to main GUI
+	If $guimode = "add_gui" Then
+		_AddAssociations()
+		GUISetState(@SW_SHOWMINNOACTIVE)
+	Else
+		GUISetState(@SW_SHOW) ; show main GUI
+	EndIf
+EndFunc
+#EndRegion GUI Creation Functions (all GUIs)
+#Region Main GUI Functions
+Func _PopulateProfiles()
+	Local $search = FileFindFirstFile($settingsdir & "\*_assoc.ini")
+	If $search = -1 Then Return
+
+	Local $profiles = ""
+	While 1
+		Local $item = FileFindNextFile($search)
+		If @error Then ExitLoop
+
+		Local $str = StringLeft($item, StringInStr($item, "_", 0, -1) - 1)
+		If $str <> "" Then $profiles &= "|" & $str
+	WEnd
+	FileClose($search)
+	GUICtrlSetData($nProfile, $profiles, $curProfile)
+EndFunc
+
+Func _SetProfileEvent()
+	_SetProfile()
+EndFunc
+
+Func _SetProfile($profile = "")
+	; sets the active profile, creates one if it doesn't exist
+	If $profile = "" Then
+		$curProfile = GUICtrlRead($nProfile) ; read profile
+	Else
+		$curProfile = $profile
+	EndIf
+
+	; set INIs
+	IniWrite($profileini, "profile", "active", $curProfile)
+	$stateini = $settingsdir & "\" & $curProfile & "_state.ini"
+	$associni = $settingsdir & "\" & $curProfile & "_assoc.ini"
+	$typesini = $settingsdir & "\" & $curProfile & "_types.ini"
+	$sendtoini = $settingsdir & "\" & $curProfile & "_sendto.ini"
+
+	; create new profile INI files
+	If Not FileExists($associni) Then
+		IniWrite($associni, "Default", "mode", "txt")
+		IniWrite($associni, "Default", "title", "|| Open with Notepad")
+		IniWrite($associni, "Default", "command", '''notepad.exe "%1"''')
+		IniWrite($associni, "Default", "disabled", $GUI_UNCHECKED)
+	EndIf
+	If Not FileExists($stateini) Then
+		IniWrite($stateini, "state", "state", "0")
+		IniWrite($stateini, "state", "version", $version)
+	EndIf
+
+	; version checks and upgrades for existing profiles
+	If _VersionCheckInternal(IniRead($stateini, "state", "version", "0.0.0.0")) Then
+		; set current version
+		IniWrite($stateini, "state", "version", $version)
+		; fix my mistake
+		For $i = 0 To UBound($blacklist) - 1
+			IniDelete($typesini, $blacklist[$i])
+			RegDelete("HKCU\Software\Classes\PortableFileAssoc_" & $blacklist[$i])
+		Next
+		; remove pending entry
+		IniDelete($stateini, "state", "pending")
+		; rename old _icons.ini
+		FileMove($settingsdir & "\" & $curProfile & "_icons.ini", $typesini)
+		; convert PDRIVE tokens in old command paths and create relative paths, remove 'default' key from _assoc.ini
+		_ConvertPaths()
+	EndIf
+
+	; refresh everything
+	_InitTypesINI()
+	_ReadStateINI()
+	; if the GUI is running
+	If WinExists($nGUI) Then
+		_SetTrayStatus()
+	EndIf
+EndFunc
+
+Func _NewProfile()
+	Local $newname = _GetNewProfileName()
+	If $newname <> "" Then
+		_SetProfile($newname)
+		_PopulateProfiles()
+	EndIf
+EndFunc
+
+Func _CloneProfile()
+	Local $newname = _GetNewProfileName()
+	If $newname <> "" Then
+		For $i = 0 To UBound($aProfileINIs) - 1
+			FileCopy($associni, $settingsdir & "\" & $newname & $aProfileINIs[$i])
+		Next
+		_SetProfile($newname)
+		_PopulateProfiles()
+	EndIf
+EndFunc
+
+Func _GetNewProfileName()
+	Local $i = 1
+	Local $newname = "New" & $i
+	While FileExists($settingsdir & "\" & $newname & "_assoc.ini")
+		$i += 1
+		$newname = "New" & $i
+	WEnd
+	Return _VerifyProfileName($newname)
+EndFunc
+
+Func _VerifyProfileName($newname)
+	While 1
+		$newname = StringStripWS(InputBox("Profiles...", "Enter new profile name:", $newname, "", 220, 130, Default, Default, 0, $nGUI), 8)
+		If StringRegExp($newname, '[\\/:*?"<>|]') Then
+			MsgBox(48, "Error", "Name cannot contain illegal characters:" & @CRLF & @TAB & '\ / : * ? " < > |', 0, $nGUI)
+		ElseIf FileExists($settingsdir & "\" & $newname & "_assoc.ini") Then
+			MsgBox(48, "Error", "Profile already exists.", 0, $nGUI)
+		Else
+			ExitLoop
+		EndIf
+	WEnd
+	Return $newname
+EndFunc
+
+Func _RenameProfile()
+	Local $newname = _VerifyProfileName(GUICtrlRead($nProfile))
+	If $newname <> "" Then
+		For $i = 0 To UBound($aProfileINIs) - 1
+			FileMove($associni, $settingsdir & "\" & $newname & $aProfileINIs[$i])
+		Next
+		_SetProfile($newname)
+		_PopulateProfiles()
+	EndIf
+EndFunc
+
+Func _RemoveProfile()
+	If 7 = MsgBox(4 + 32, "Profiles...", "Really remove profile '" & GUICtrlRead($nProfile) & "'?" & @CRLF & _
+					"This operation cannot be undone.", 0, $nGUI) Then Return
+	FileDelete($settingsdir & "\" & GUICtrlRead($nProfile) & "_*.ini")
+	_SetProfile(_GetNextProfile())
+	_PopulateProfiles()
+EndFunc
+
+Func _GetNextProfile()
+	Local $profile, $search = FileFindFirstFile($settingsdir & "\*_assoc.ini")
+	If $search = -1 Then
+		$profile = "default"
+	Else
+		Local $item = FileFindNextFile($search)
+		$profile = StringLeft($item, StringInStr($item, "_", 0, -1) - 1)
+		FileClose($search)
+	EndIf
+	Return $profile
+EndFunc
+
+Func _SetTrayStatus()
+		; tray status
+		If $onclose = 1 Then
+			TrayItemSetState($trayonclose, $TRAY_CHECKED)
+		Else
+			TrayItemSetState($trayonclose, $TRAY_UNCHECKED)
+		EndIf
+		If $fVistaOrBetter Then
+			TrayItemSetState($rebuildonchange, $TRAY_DISABLE)
+		Else
+			If $rebuild = 1 Then
+				TrayItemSetState($rebuildonchange, $TRAY_CHECKED)
+			Else
+				TrayItemSetState($rebuildonchange, $TRAY_UNCHECKED)
+			EndIf
+		EndIf
+	EndFunc
+
+Func _ActionButtonsState()
+	If $state = 0 Then
+		GUICtrlSetState($Button1, $GUI_ENABLE)
+		GUICtrlSetState($Button2, $GUI_DISABLE) ; disable remove button
+		GUICtrlSetState($Button3, $GUI_ENABLE)
+		GUICtrlSetState($nProfile, $GUI_ENABLE)
+		GUICtrlSetState($nNew, $GUI_ENABLE)
+		GUICtrlSetState($nClone, $GUI_ENABLE)
+		GUICtrlSetState($nRename, $GUI_ENABLE)
+		GUICtrlSetState($nRemove, $GUI_ENABLE)
+	Else
+		GUICtrlSetState($Button1, $GUI_DISABLE) ; disable add button
+		GUICtrlSetState($Button2, $GUI_ENABLE)
+		GUICtrlSetState($Button3, $GUI_DISABLE) ; disable edit button
+		GUICtrlSetState($nProfile, $GUI_DISABLE) ; disable profile controls
+		GUICtrlSetState($nNew, $GUI_DISABLE)
+		GUICtrlSetState($nClone, $GUI_DISABLE)
+		GUICtrlSetState($nRename, $GUI_DISABLE)
+		GUICtrlSetState($nRemove, $GUI_DISABLE)
+	EndIf
+EndFunc
+
+Func _ToggleOnClose()
+	If $onclose = 1 Then
+		TrayItemSetState($trayonclose, $TRAY_UNCHECKED)
+		$onclose = 0
+		IniWrite($stateini, "state", "onclose", "0")
+	Else
+		TrayItemSetState($trayonclose, $TRAY_CHECKED)
+		$onclose = 1
+		IniWrite($stateini, "state", "onclose", "1")
+	EndIf
+EndFunc
+
+Func _ToggleRebuildOnChange()
+	If $rebuild = 1 Then
+		TrayItemSetState($rebuildonchange, $TRAY_UNCHECKED)
+		$rebuild = 0
+		IniWrite($stateini, "state", "refresh", "0")
+	Else
+		If $fVistaOrBetter Then ; we should never see this message
+			MsgBox(0 + 64, "Error", "This function will not work on Vista+.")
+			Return
+		Else
+			TrayItemSetState($rebuildonchange, $TRAY_CHECKED)
+			$rebuild = 1
+			IniWrite($stateini, "state", "refresh", "1")
+		EndIf
+	EndIf
+EndFunc
+
+
+Func _AddAssociations()
+	_FileAssociations("add")
+	_ActionButtonsState() ; set button states
+	TraySetToolTip("PortableFileAssociator (enabled)" & @CRLF & "Profile:  " & $curProfile) ; set tooltip
+EndFunc
+
+Func _RemoveAssociations()
+	_FileAssociations("remove")
+	_ActionButtonsState() ; set button states
+	TraySetToolTip("PortableFileAssociator (disabled)") ; set tooltip
+EndFunc
+
+Func _HideMainGUI()
+	GUISetState(@SW_MINIMIZE, $nGUI)
+	GUISetState(@SW_HIDE, $nGUI)
+EndFunc
+
+Func _RestoreMainGUI()
+	GUISetState(@SW_SHOW, $nGUI)
+	GUISetState(@SW_RESTORE, $nGUI)
+EndFunc
+#EndRegion Main GUI Functions
+#Region System Restore functions
+Func _CreateRestorePoint()
+	Local $name = InputBox("System Restore", "Enter a name for this restore point:", "", " M", 275, 140, Default, Default, 0, $nGUI)
+	If $name <> "" Then
+		Local $objSR = ObjGet("winmgmts:{impersonationLevel=impersonate}!root/default:SystemRestore")
+		If Not IsObj($objSR) Then
+			MsgBox(48, "Error", "Could not access System Restore.", 0, $nGUI)
+			Return
+		EndIf
+		GUISetCursor(15, 1, $nGUI)
+		Local $ret = $objSR.CreateRestorePoint($name, 12, 100) ; APPLICATION_INSTALL, BEGIN_SYSTEM_CHANGE
+		GUISetCursor()
+		If $ret Then MsgBox(48, "Error", "Error creating Restore Point.", 0, $nGUI)
+		$objSR = 0
+	EndIf
+EndFunc
+#EndRegion System Restore functions
+#Region Association GUI Functions
+;=======================================================================================
+; Association GUI Functions
+;=======================================================================================
+
+Func _EditAssocINI()
+	_RefreshAssocGUI()
+	GUISetState(@SW_DISABLE, $nGUI) ; disable main GUI
+	WinSetTitle($aGUI, "", "Edit Associations - " & $curProfile)
+	GUISetState(@SW_SHOW, $aGUI) ; show assoc GUI
+EndFunc
+
+Func _RefreshAssocGUI()
+	Local $section, $aListdata[1] = [0], $i
+
+	$section = _ReadINISections() ; get sections
+	For $i = 1 To $section[0]
+		_ArrayAdd($aListdata, $section[$i])
+		If Number(IniRead($associni, $section[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then $aListdata[$i] &= " **" ; mark disabled associations
+	Next
+	_ArraySort($aListdata, 0, 1)
+	GUICtrlSetData($lSec, "|" & _ArrayToString($aListdata, "|", 1)) ; set control data
+	GUICtrlSetData($iSec, "")
+	GUICtrlSetData($iMode, "")
+	GUICtrlSetData($iTitle, "")
+	GUICtrlSetData($iCommand, "")
+	GUICtrlSetData($iAssocIcon, "")
+	GUICtrlSetData($iAssocIconIndex, "0")
+	GUICtrlSetImage($iAssocIconPreview, "", 0)
+	GUICtrlSetState($disChk, $GUI_UNCHECKED)
+EndFunc
+
+Func _GetAssocInfo()
+	Local $tSec, $tMode, $tTitle, $tCommand, $sDisabled, $sIcon, $aIcon
+
+	$tSec = StringReplace(GUICtrlRead($lSec), ' **', '') ; get selection, remove ' **'
+	$tMode = IniRead($associni, $tSec, "mode", "") ; read INI data
+	$tTitle = IniRead($associni, $tSec, "title", "")
+	$tCommand = _GetFullCommand(IniRead($associni, $tSec, "command", ""))
+	$sIcon = IniRead($associni, $tSec, "icon", "")
+	$sDisabled = Number(IniRead($associni, $tSec, "disabled", $GUI_UNCHECKED)) ; 4 = unchecked
+	GUICtrlSetData($iSec, $tSec) ; set control data
+	GUICtrlSetData($iMode, $tMode)
+	GUICtrlSetData($iTitle, $tTitle)
+	GUICtrlSetData($iCommand, $tCommand)
+	$aIcon = _ParseAssocIcon($sIcon)
+	GUICtrlSetData($iAssocIcon, $aIcon[0])
+	GUICtrlSetData($iAssocIconIndex, $aIcon[1])
+	_UpdateAssocIconPreview()
+	GUICtrlSetState($disChk, $sDisabled)
+EndFunc
+
+Func _SaveAssocSection()
+	Local $tSec, $tMode, $tTitle, $tCommand, $sDisabled, $atCommand[1], $sIcon
+
+	$tSec = StringStripWS(GUICtrlRead($iSec), 8) ; get section to save, no spaces
+	If $tSec = "" Then
+		MsgBox(0 + 48, "Error", "Association Name cannot be blank.", 0, $aGUI)
+		Return
+	EndIf
+	If StringInStr($tSec, '*') Or StringInStr($tSec, ',') Then
+		MsgBox(0 + 48, "Error", "Association Name cannot contain ',' or '*' characters.", 0, $aGUI)
+		Return
+	EndIf
+	$tMode = StringStripWS(GUICtrlRead($iMode), 8) ; get edited data
+	If $tMode = "" Then
+		MsgBox(0 + 48, "Error", "Associated Types cannot be blank.", 0, $aGUI)
+		Return
+	EndIf
+	IniReadSection($associni, $tSec) ; check if section exists and warn
+	If Not @error Then
+		If 7 = MsgBox(4 + 32 + 256, "Save INI Section", "Section exists.  Overwrite?", 0, $aGUI) Then Return
+	EndIf
+
+	$tTitle = GUICtrlRead($iTitle)
+	$tCommand = GUICtrlRead($iCommand)
+	If GUICtrlRead($iAssocIcon) <> "" And Not FileExists(GUICtrlRead($iAssocIcon)) Then
+		MsgBox(48, "Context-menu icon", "The selected icon file does not exist:" & @CRLF & GUICtrlRead($iAssocIcon), 0, $aGUI)
+		Return
+	EndIf
+	$atCommand = _CommandSplit($tCommand)
+	If StringInStr($atCommand[0], "%") Then
+		MsgBox(0 + 48, "Error", "Command cannot use environment variables.", 0, $aGUI)
+		Return
+	EndIf
+	If BitAND(GUICtrlRead($disChk), $GUI_CHECKED) Then
+		$sDisabled = $GUI_CHECKED
+	Else
+		$sDisabled = $GUI_UNCHECKED
+	EndIf
+	IniWrite($associni, $tSec, "mode", $tMode) ; write INI data
+	IniWrite($associni, $tSec, "title", $tTitle)
+	IniWrite($associni, $tSec, "command", "'" & _GetRelCommand($tCommand) & "'")
+	$sIcon = _GetRelAssocIcon(GUICtrlRead($iAssocIcon), Number(GUICtrlRead($iAssocIconIndex)))
+	If $sIcon = "" Then
+		IniDelete($associni, $tSec, "icon")
+	Else
+		IniWrite($associni, $tSec, "icon", $sIcon)
+	EndIf
+	IniWrite($associni, $tSec, "disabled", $sDisabled) ; 1 = checked, 4 = unchecked
+	_RefreshAssocGUI()
+EndFunc
+
+Func _ParseAssocIcon($sIcon)
+	Local $aResult[2] = ["", "0"], $iComma
+	$sIcon = StringReplace($sIcon, '"', '')
+	$iComma = StringInStr($sIcon, ",", 0, -1)
+	If $iComma > 0 Then
+		$aResult[0] = StringLeft($sIcon, $iComma - 1)
+		$aResult[1] = StringTrimLeft($sIcon, $iComma)
+	Else
+		$aResult[0] = $sIcon
+	EndIf
+	If Not StringIsInt($aResult[1]) Then $aResult[1] = "0"
+	If Number($aResult[1]) <> 0 Then $aResult[1] = _WindowsIndexToAITIndex(Number($aResult[1]))
+	If $aResult[0] <> "" Then $aResult[0] = _GetFullIcon($aResult[0])
+	Return $aResult
+EndFunc
+
+Func _GetRelAssocIcon($sPath, $iIndex = 0)
+	$sPath = StringStripWS(StringReplace($sPath, '"', ''), 3)
+	If $sPath = "" Then Return ""
+	If Not FileExists($sPath) Then Return SetError(1, 0, "")
+	If StringInStr($sPath, ":\") Then $sPath = _PathGetRelative2(@ScriptDir, $sPath)
+	If $iIndex <> 0 Then $sPath &= "," & _AITIndexToWindowsIndex($iIndex)
+	Return $sPath
+EndFunc
+
+Func _UpdateAssocIconPreview()
+	Local $sPath = GUICtrlRead($iAssocIcon)
+	Local $iIndex = Number(GUICtrlRead($iAssocIconIndex))
+	If $sPath <> "" And FileExists($sPath) Then
+		GUICtrlSetImage($iAssocIconPreview, $sPath, $iIndex)
+	Else
+		GUICtrlSetImage($iAssocIconPreview, "", 0)
+	EndIf
+EndFunc
+
+Func _BrowseAssocIcon()
+	Local $sPath = GUICtrlRead($iAssocIcon)
+	Local $sInitial = @ScriptDir
+	If $sPath <> "" Then
+		If StringInStr($sPath, ",") Then $sPath = StringLeft($sPath, StringInStr($sPath, ",", 0, -1) - 1)
+		If FileExists($sPath) Then $sInitial = $sPath
+	EndIf
+	$sPath = FileOpenDialog("Choose context-menu icon", $sInitial, "Icon and resource files (*.ico;*.exe;*.dll)|All files (*.*)", 1, "", $aGUI)
+	If @error Then Return
+	GUICtrlSetData($iAssocIcon, $sPath)
+	_UpdateAssocIconPreview()
+EndFunc
+
+Func _DeleteAssocSection()
+	Local $tSec = StringReplace(GUICtrlRead($lSec), ' **', '') ; get selection, remove ' **'
+	If $tSec = "" Then Return ; no selection
+
+	Local $sections = _ReadINISections()
+	If $sections[0] = 1 Then ; last section, do not allow deletion
+		MsgBox(0 + 48, "Error", "You cannot delete the last file association." & @CRLF & _
+								"Please add another association before deleting this one.", 0, $aGUI)
+		Return
+	EndIf
+
+	If 7 = MsgBox(4 + 32 + 256, "Delete INI Section", "Are you sure?", 0, $aGUI) Then Return ; confirmation
+	IniDelete($associni, $tSec) ; delete INI section
+	_RefreshAssocGUI()
+EndFunc
+
+Func _AssocHelp() ; help
+	ShellExecute('"' & @ScriptDir & '\App\portablefileassociator\Readme.txt"', "", "", "open")
+EndFunc
+
+Func _BrowseCommand()
+	Local $path
+
+	$path = StringReplace(_GetExePath(GUICtrlRead($iCommand)), '"', '') ; remove quotes
+	$path = StringLeft($path, StringInStr($path, "\", 0, -1)) ; get path
+	$path = FileOpenDialog("Browse for Command target...", $path, "All (*.*)", 1 + 3)
+	If Not @error Then
+		If StringInStr($path, ' ') Then $path = '"' & $path & '"'
+		$path &= ' "%1"'
+		GUICtrlSetData($iCommand, $path)
+	EndIf
+EndFunc
+
+Func _aGUIClose()
+	_InitTypesINI() ; refresh types INI
+	GUISetState(@SW_HIDE, $aGUI) ; hide assoc GUI
+	GUISetState(@SW_ENABLE, $nGUI) ; enable main GUI
+	WinActivate($nGUI) ; bring to front
+EndFunc
+#EndRegion Association GUI Functions
+#Region Types GUI Functions
+;=======================================================================================
+; Types GUI Functions
+;=======================================================================================
+
+Func _InitTypesINI()
+	Local $iniftypes, $ftypes, $i, $icon, $aIcon[1]
+
+	$ftypes = _FtypeToArray(_ReadINISections())
+	; clear unused types sections
+	$iniftypes = IniReadSectionNames($typesini)
+	If IsArray($iniftypes) Then
+		For $i = 1 To $iniftypes[0]
+			_ArraySearch($ftypes, $iniftypes[$i]) ; search active ftypes array for icon ftype
+			If @error Then ; ftype not active
+				IniDelete($typesini, $iniftypes[$i])
+			EndIf
+		Next
+	EndIf
+	; convert old icon paths, write new or empty icons
+	For $i = 1 To $ftypes[0]
+		$icon = IniRead($typesini, $ftypes[$i], "icon", "")
+		; convert old icon paths
+		If StringInStr($icon, "PDRIVE", 1) Then
+			$aIcon = StringSplit($icon, ",")
+			$icon = _PathGetRelative2(@ScriptDir, _PDRIVEToDrive($aIcon[1]))
+			If $aIcon[0] > 1 Then $icon &= "," & $aIcon[2]
+			IniWrite($typesini, $ftypes[$i], "icon", $icon)
+		EndIf
+		If $icon = "" Then ; no icon set, use associated program
+			$icon = _FtypeToEXE($ftypes[$i])
+			IniWrite($typesini, $ftypes[$i], "icon", $icon)
+		EndIf
+	Next
+EndFunc
+
+Func _TypesEditGUI()
+	; Reset editor controls before populating the association/file-type selectors.
+	GUICtrlSetData($defassoclist, "")
+	GUICtrlSetState($hideext, $GUI_UNCHECKED)
+	GUICtrlSetState($copyhost, $GUI_UNCHECKED)
+	GUICtrlSetState($hostoverride, BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	GUICtrlSetData($ftypeicon, "")
+	GUICtrlSetData($iconindex, "")
+	GUICtrlSetState($showNewMenu, $GUI_UNCHECKED)
+	GUICtrlSetData($newMenuName, "")
+	GUICtrlSetState($useTemplate, BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	GUICtrlSetData($templateFile, "")
+	GUICtrlSetState($templateFile, $GUI_DISABLE)
+	_PopulateFtypeAssociationFilter()
+	_GetIcon()
+	GUISetState(@SW_DISABLE, $nGUI)
+	WinSetTitle($tGUI, "", "Configure File Types - " & $curProfile)
+	GUISetState(@SW_SHOW, $tGUI)
+EndFunc
+
+Func _PopulateFtypeAssociationFilter()
+	Local $aSections = _ReadINISections(), $aNames[1] = [0]
+	; Only show associations that contain at least one real file extension.
+	; Associations made exclusively of special shell targets are not file-type groups.
+	For $i = 1 To $aSections[0]
+		If Not _AssociationHasFileTypes($aSections[$i]) Then ContinueLoop
+		$aNames[0] += 1
+		_ArrayAdd($aNames, $aSections[$i])
+	Next
+	If $aNames[0] > 1 Then _ArraySort($aNames, 0, 1)
+	GUICtrlSetData($ftypeAssocFilter, "|(All associations)|" & _ArrayToString($aNames, "|", 1), "(All associations)")
+	_PopulateFtypeListForAssociation("(All associations)")
+EndFunc
+
+Func _FtypeAssocFilterChange()
+	_PopulateFtypeListForAssociation(GUICtrlRead($ftypeAssocFilter))
+EndFunc
+
+Func _IsSpecialFtypeMode($sMode)
+	$sMode = StringLower(StringStripWS($sMode, 3))
+	Switch $sMode
+		Case "", "drive", "drives", "files", "folders", "recycle", "exe", "com"
+			Return True
+	EndSwitch
+	Return False
+EndFunc
+
+Func _AssociationHasFileTypes($sAssocName)
+	Local $aModes = StringSplit(IniRead($associni, $sAssocName, "mode", ""), "|")
+	If @error Or $aModes[0] = 0 Then Return False
+	For $i = 1 To $aModes[0]
+		If Not _IsSpecialFtypeMode($aModes[$i]) Then Return True
+	Next
+	Return False
+EndFunc
+
+Func _AddUniqueFtype(ByRef $aFtypes, $sFtype)
+	If _IsSpecialFtypeMode($sFtype) Then Return
+	For $i = 1 To $aFtypes[0]
+		If StringLower($aFtypes[$i]) = StringLower($sFtype) Then Return
+	Next
+	$aFtypes[0] += 1
+	_ArrayAdd($aFtypes, $sFtype)
+EndFunc
+
+Func _PopulateFtypeListForAssociation($sAssocName)
+	Local $aFtypes[1] = [0], $aSections, $aModes
+	If $sAssocName = "" Or $sAssocName = "(All associations)" Then
+		$aSections = _ReadINISections()
+		For $i = 1 To $aSections[0]
+			$aModes = StringSplit(IniRead($associni, $aSections[$i], "mode", ""), "|")
+			If @error Or $aModes[0] = 0 Then ContinueLoop
+			For $j = 1 To $aModes[0]
+				_AddUniqueFtype($aFtypes, $aModes[$j])
+			Next
+		Next
+	ElseIf _AssociationHasFileTypes($sAssocName) Then
+		$aModes = StringSplit(IniRead($associni, $sAssocName, "mode", ""), "|")
+		If Not @error Then
+			For $i = 1 To $aModes[0]
+				_AddUniqueFtype($aFtypes, $aModes[$i])
+			Next
+		EndIf
+	EndIf
+	If $aFtypes[0] > 1 Then _ArraySort($aFtypes, 0, 1)
+	GUICtrlSetData($ftypelist, "|" & _ArrayToString($aFtypes, "|", 1))
+	; Clear stale editor values until an extension from this group is selected.
+	GUICtrlSetData($defassoclist, "")
+	GUICtrlSetData($ftypeicon, "")
+	GUICtrlSetData($iconindex, "0")
+	GUICtrlSetState($hideext, $GUI_UNCHECKED)
+	GUICtrlSetState($copyhost, $GUI_UNCHECKED)
+	GUICtrlSetState($hostoverride, BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	GUICtrlSetState($showNewMenu, $GUI_UNCHECKED)
+	GUICtrlSetData($newMenuName, "")
+	GUICtrlSetState($useTemplate, BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	GUICtrlSetData($templateFile, "")
+	GUICtrlSetState($templateFile, $GUI_DISABLE)
+	If $aFtypes[0] > 0 Then
+		GUICtrlSetData($ftypelist, "|" & _ArrayToString($aFtypes, "|", 1), $aFtypes[1])
+		_FtypeChange()
+	Else
+		GUICtrlSetData($ftypelist, "")
+	EndIf
+EndFunc
+
+Func _RefreshNow()
+	_SHChangeNotify() ; send system change notification
+	If $fVistaOrBetter Then
+		Return ; do not refresh on Vista
+	ElseIf $rebuild = 1 Then
+		_RebuildIcons()
+	EndIf
+EndFunc
+
+Func _SHChangeNotify()
+	DllCall("shell32.dll", "none", "SHChangeNotify", _
+						"long", $PFA_SHCNE_ASSOCCHANGED, _
+						"uint", BitOR($PFA_SHCNF_IDLIST, $PFA_SHCNF_FLUSH), _
+						"ptr", 0, _
+						"ptr", 0 _
+						)
+EndFunc
+
+Func _RebuildIcons()
+	Local $icon_pos, $lg_icon_sz, $sm_icon_sz
+
+	$icon_pos = _SaveIconPos()
+
+	$lg_icon_sz = RegRead("HKCU\Control Panel\Desktop\WindowMetrics", "Shell Icon Size")
+	If $lg_icon_sz <> "" Then _
+		RegWrite("HKCU\Control Panel\Desktop\WindowMetrics", "Shell Icon Size", "REG_SZ", $lg_icon_sz + 1)
+
+	$sm_icon_sz = RegRead("HKCU\Control Panel\Desktop\WindowMetrics", "Shell Icon BPP")
+	If $sm_icon_sz <> "" Then _
+		RegWrite("HKCU\Control Panel\Desktop\WindowMetrics", "Shell Icon BPP", "REG_SZ", $sm_icon_sz + 1)
+
+	_SystemBroadcast()
+	_FileIconInit()
+
+	If $lg_icon_sz <> "" Then _
+		RegWrite("HKCU\Control Panel\Desktop\WindowMetrics", "Shell Icon Size", "REG_SZ", $lg_icon_sz)
+	If $sm_icon_sz <> "" Then _
+		RegWrite("HKCU\Control Panel\Desktop\WindowMetrics", "Shell Icon BPP", "REG_SZ", $sm_icon_sz)
+
+	_SystemBroadcast()
+	_FileIconInit()
+
+	_RestoreIconPos($icon_pos)
+EndFunc
+
+Func _SystemBroadcast()
+	Local $ret
+
+	$ret = DllCall("user32.dll", "int", "SendMessage", _
+									"hwnd", $PFA_HWND_BROADCAST, _
+									"uint", $PFA_WM_SETTINGCHANGE, _
+									"wparam", $PFA_SPI_SETNONCLIENTMETRICS, _
+									"str", "WindowMetrics" _
+								)
+	If Not @Compiled Then ConsoleWrite("Broadcast return: " & $ret[0] & @CRLF)
+EndFunc
+
+Func _FileIconInit()
+	Local $ret
+
+	; 660 = ordinal for FileIconInit function
+	$ret = DllCall("shell32.dll", "int", 660, _
+									"int", 1 _
+									)
+	If Not @Compiled Then ConsoleWrite("Icon return: " & $ret[0] & @CRLF)
+EndFunc
+
+Func _SaveIconPos()
+	Local $iconArray[1][3] = [[0, 0, 0]], $desktop, $items, $i, $tempName, $tempArray
+
+	$desktop = ControlGetHandle("[TITLE:Program Manager; CLASS:Progman]", "", 1) ; get desktop handle
+	If Not IsHWnd($desktop) Then Return SetError(1)
+	$items = _GUICtrlListView_GetItemCount($desktop)
+	$iconArray[0][0] = $items ; icon count
+	For $i = 0 To $items - 1
+		$tempName = _GUICtrlListView_GetItemText($desktop, $i)
+		$tempArray = _GUICtrlListView_GetItemPosition($desktop, $i)
+		ReDim $iconArray[UBound($iconArray) + 1][3] ; increase rows of array
+		$iconArray[UBound($iconArray) - 1][0] = $tempName ; icon name
+		$iconArray[UBound($iconArray) - 1][1] = $tempArray[0] ; icon X coord
+		$iconArray[UBound($iconArray) - 1][2] = $tempArray[1] ; icon Y coord
+		; array = [0][1][2] = [name][x][y]
+	Next
+	Return $iconArray
+EndFunc
+
+Func _RestoreIconPos($iconArray)
+	Local $desktop, $items, $i, $found, $tempName
+
+	$desktop = ControlGetHandle("[TITLE:Program Manager; CLASS:Progman]", "", 1) ; get desktop handle
+	If Not IsHWnd($desktop) Then Return SetError(1)
+	$items = _GUICtrlListView_GetItemCount($desktop)
+	For $i = 1 To $items
+		; search array
+		$found = 0 ; reset search
+		$tempName = _GUICtrlListView_GetItemText($desktop, $i - 1)
+		For $j = 1 To $iconArray[0][0]
+			If $tempName = $iconArray[$j][0] Then
+				$found = 1
+				ExitLoop
+			EndIf
+		Next
+		If Not $found Then ContinueLoop
+		_GUICtrlListView_SetItemPosition($desktop, $i - 1, $iconArray[$j][1], $iconArray[$j][2]) ; move icons
+	Next
+EndFunc
+
+Func _MY_WM_COMMAND($hWnd, $Msg, $wParam, $lParam)
+	#forceref $Msg, $lParam
+	Local $message, $ctrlid
+
+	If $hWnd = $tGUI Or $hWnd = $aGUI Then
+		$message = BitShift($wParam, 16) ; high word of $wParam = notification msg
+		$ctrlid = BitAnd($wParam, 0x0000FFFF) ; low word of $wParam = ctrlid
+		If $message = $EN_CHANGE Then
+			If $hWnd = $tGUI Then
+				If $ctrlid = $ftypeicon Then
+					GUICtrlSetData($iconindex, "0")
+					_GetIcon()
+				ElseIf $ctrlid = $iconindex Then
+					_GetIcon()
+				EndIf
+			ElseIf $ctrlid = $iAssocIcon Or $ctrlid = $iAssocIconIndex Then
+				_UpdateAssocIconPreview()
+			EndIf
+		EndIf
+	EndIf
+EndFunc
+
+Func _MY_WM_ENDSESSION($hWnd, $Msg, $wParam, $lParam)
+	#forceref $hWnd, $Msg, $lParam
+	If $wParam = 1 Then
+		$onclose = 1 ; remove associations in exit func
+		_Exit()
+	EndIf
+	Return 0 ; always return 0
+EndFunc
+
+Func _GetIcon()
+	Local $icon, $index
+
+	$icon = GUICtrlRead($ftypeicon)
+	$index = Number(GUICtrlRead($iconindex))
+	GUICtrlSetImage($icondisplay, $icon, $index)
+EndFunc
+
+Func _BrowseIcon()
+	Local $file, $index, $newicon
+
+	If GUICtrlRead($ftypeicon) = "" Then Return
+
+	$file = GUICtrlRead($ftypeicon)
+	$index = _AITIndexToWindowsIndex(Number(GUICtrlRead($iconindex)))
+
+	$newicon = DllCall("shell32.dll", "int", 62, _ ; 62 = ordinal for IconPickDlg()
+										"hwnd", $tGUI, _
+										"wstr", $file, _
+										"int", $PFA_MAX_PATH, _
+										"int*", $index _
+										)
+	If $newicon[0] = 0 Then
+		Return ; user cancelled dialog
+	Else
+		GUICtrlSetData($ftypeicon, $newicon[2])
+		GUICtrlSetData($iconindex, _WindowsIndexToAITIndex($newicon[4]))
+		_GetIcon()
+	EndIf
+EndFunc
+
+Func _GetNewItemsTemplatePath($sExtension)
+	Local $sExt = StringRegExpReplace(StringStripWS($sExtension, 3), "^\.", "")
+	If $sExt = "" Then Return ""
+	Return @ScriptDir & "\Data\newitems\" & StringUpper($sExt) & "." & $sExt
+EndFunc
+
+Func _UpdateTemplateControls()
+	Local $fShowNew = (BitAND(GUICtrlRead($showNewMenu), $GUI_CHECKED) = $GUI_CHECKED)
+	Local $fUseTemplate = (BitAND(GUICtrlRead($useTemplate), $GUI_CHECKED) = $GUI_CHECKED)
+	Local $sExt = GUICtrlRead($ftypelist)
+	Local $sTemplate = _GetNewItemsTemplatePath($sExt)
+	GUICtrlSetState($useTemplate, $fShowNew ? $GUI_ENABLE : BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	If Not $fShowNew Then
+		GUICtrlSetState($templateFile, $GUI_DISABLE)
+	Else
+		GUICtrlSetState($templateFile, ($fUseTemplate ? $GUI_ENABLE : $GUI_DISABLE))
+	EndIf
+	GUICtrlSetData($templateFile, $sTemplate = "" ? "" : "Data\newitems\" & StringUpper($sExt) & "." & $sExt)
+EndFunc
+
+Func _ShowNewToggle()
+	If BitAND(GUICtrlRead($showNewMenu), $GUI_CHECKED) <> $GUI_CHECKED Then
+		GUICtrlSetState($useTemplate, BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	EndIf
+	_UpdateTemplateControls()
+EndFunc
+
+Func _TemplateToggle()
+	_UpdateTemplateControls()
+EndFunc
+
+Func _SaveTypes()
+	Local $index, $hide, $host, $hostover
+
+	Local $ext = GUICtrlRead($ftypelist)
+	If $ext = "" Then Return
+	; pending
+	If $state = 1 Then $iconchange = True ; only pending if associations currently active
+	; index
+	$index = Number(GUICtrlRead($iconindex))
+	If $index = 0 Then
+		$index = ""
+	Else
+		$index = "," & _AITIndexToWindowsIndex($index)
+	EndIf
+	; hidden
+	If BitAND(GUICtrlRead($hideext), $GUI_CHECKED) Then
+		$hide = $GUI_CHECKED
+	Else
+		$hide = $GUI_UNCHECKED
+	EndIf
+	; copy host
+	If BitAND(GUICtrlRead($copyhost), $GUI_CHECKED) Then
+		$host = $GUI_CHECKED
+	Else
+		$host = $GUI_UNCHECKED
+	EndIf
+	; host override
+	If $host = $GUI_CHECKED And BitAND(GUICtrlRead($hostoverride), $GUI_CHECKED) Then
+		$hostover = $GUI_CHECKED
+	Else
+		$hostover = $GUI_UNCHECKED
+	EndIf
+	IniWrite($typesini, $ext, "icon", _PathGetRelative2(@ScriptDir, GUICtrlRead($ftypeicon)) & $index)
+	IniWrite($typesini, $ext, "hide", $hide) ; 1 = checked, 4 = unchecked
+	IniWrite($typesini, $ext, "copyhost", $host)
+	IniWrite($typesini, $ext, "hostoverride", $hostover)
+	IniWrite($typesini, $ext, "default", GUICtrlRead($defassoclist))
+	IniWrite($typesini, $ext, "shownew", BitAND(GUICtrlRead($showNewMenu), $GUI_CHECKED) ? $GUI_CHECKED : $GUI_UNCHECKED)
+	IniWrite($typesini, $ext, "newname", StringStripWS(GUICtrlRead($newMenuName), 3))
+	Local $fShowNew = (BitAND(GUICtrlRead($showNewMenu), $GUI_CHECKED) = $GUI_CHECKED)
+	Local $fUseTemplate = ($fShowNew And BitAND(GUICtrlRead($useTemplate), $GUI_CHECKED) = $GUI_CHECKED)
+	IniWrite($typesini, $ext, "usetemplate", $fUseTemplate ? $GUI_CHECKED : $GUI_UNCHECKED)
+	; Legacy custom template paths are intentionally cleared: PFA now uses a fixed filename in Data\newitems.
+	IniWrite($typesini, $ext, "template", "")
+	If $fUseTemplate Then
+		Local $sExpected = _GetNewItemsTemplatePath($ext)
+		If Not FileExists($sExpected) Then
+			MsgBox(48, "File Types - Template Missing", "Please add the file with this name:" & @CRLF & @CRLF & _
+				StringUpper($ext) & "." & $ext & @CRLF & @CRLF & "Folder: Data\newitems", 0, $tGUI)
+			Return
+		EndIf
+	EndIf
+	MsgBox(0 + 64, "File Types", "Settings for '." & $ext & "' saved.", 0, $tGUI)
+EndFunc
+
+Func _FtypeChange()
+	Local $ftype, $icon, $index, $path, $aIcon[1]
+
+	$ftype = GUICtrlRead($ftypelist)
+	Local $fShowNew = (Number(IniRead($typesini, $ftype, "shownew", $GUI_UNCHECKED)) = $GUI_CHECKED)
+	GUICtrlSetState($showNewMenu, $fShowNew ? $GUI_CHECKED : $GUI_UNCHECKED)
+	GUICtrlSetData($newMenuName, IniRead($typesini, $ftype, "newname", "PFA_" & $ftype & " File"))
+	Local $fUseTemplate = ($fShowNew And Number(IniRead($typesini, $ftype, "usetemplate", $GUI_UNCHECKED)) = $GUI_CHECKED)
+	GUICtrlSetState($useTemplate, $fUseTemplate ? $GUI_CHECKED : $GUI_UNCHECKED)
+	_UpdateTemplateControls()
+	; default association
+	Local $defassoc = IniRead($typesini, $ftype, "default", "(no default)")
+	Local $aDefAssoc = _DefAssocToArray($ftype)
+	GUICtrlSetData($defassoclist, "|(no default)|" & _ArrayToString($aDefAssoc, "|", 1), $defassoc)
+	; icon
+	$icon = IniRead($typesini, $ftype, "icon", "")
+	If $icon = "" Then ; no icon set, use associated program
+		$icon = _FtypeToEXE($ftype)
+		IniWrite($typesini, $ftype, "icon", $icon) ; set INI value
+		$path = $icon
+		$index = 0
+	Else ; separate icon and index
+		$aIcon = StringSplit($icon, ",")
+		$path = $aIcon[1]
+		If $aIcon[0] > 1 Then
+			$index = _WindowsIndexToAITIndex(Number($aIcon[2]))
+		Else
+			$index = 0
+		EndIf
+	EndIf
+	Local $iCopyhost = Number(IniRead($typesini, $ftype, "copyhost", $GUI_UNCHECKED))
+	GUICtrlSetState($hideext, Number(IniRead($typesini, $ftype, "hide", $GUI_UNCHECKED)))
+	GUICtrlSetState($copyhost, $iCopyhost)
+	If $iCopyhost = $GUI_CHECKED Then
+		GUICtrlSetState($hostoverride, BitOR($GUI_ENABLE, Number(IniRead($typesini, $ftype, "hostoverride", $GUI_UNCHECKED))))
+	Else
+		GUICtrlSetState($hostoverride, BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	EndIf
+	GUICtrlSetData($ftypeicon, _GetFullIcon($path))
+	GUICtrlSetData($iconindex, $index)
+	_GetIcon()
+EndFunc
+
+Func _DefAssocToArray($ftype)
+	Local $aAssoc[1] = [0], $sections = _ReadINISections()
+	For $i = 1 To $sections[0]
+		; if association is disabled, skip it
+		If Number(IniRead($associni, $sections[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then ContinueLoop
+		; read modes from each associations and add matching ftype sections to array
+		Local $aSplit = StringSplit(IniRead($associni, $sections[$i], "mode", ""), "|")
+		_ArraySearch($aSplit, $ftype, 1)
+		If Not @error Then ; ftype found in section
+			$aAssoc[0] += 1
+			_ArrayAdd($aAssoc, $sections[$i])
+		EndIf
+	Next
+	Return $aAssoc
+EndFunc
+
+Func _AITIndexToWindowsIndex($index)
+	If $index > 0 Then
+		$index = ($index * -1)
+	ElseIf $index < 0 Then
+		$index = ($index * -1) - 1
+	EndIf
+	Return $index
+EndFunc
+
+Func _WindowsIndexToAITIndex($index)
+	If $index > 0 Then
+		$index = ($index + 1) * -1
+	ElseIf $index < 0 Then
+		$index = ($index * -1)
+	EndIf
+	Return $index
+EndFunc
+
+Func _FtypeToEXE($ftype)
+	Local $sections, $i, $modearray, $j
+
+	$sections = _ReadINISections()
+
+	For $i = 1 To $sections[0]
+		$modearray = StringSplit(IniRead($associni, $sections[$i], "mode", ""), "|")
+		For $j = 1 To $modearray[0]
+			If $modearray[$j] = $ftype Then
+				Return _GetExePath(IniRead($associni, $sections[$i], "command", ""))
+			EndIf
+		Next
+	Next
+EndFunc
+
+Func _FtypeToArray($sections)
+	Local $modearray[1] = [0], $i, $j, $modes
+	For $i = 1 To $sections[0]
+		$modes = StringSplit(IniRead($associni, $sections[$i], "mode", ""), "|")
+		If @error Or $modes[0] = 0 Then ContinueLoop
+		For $j = 1 To $modes[0]
+			_AddUniqueFtype($modearray, $modes[$j])
+		Next
+	Next
+	Return $modearray ; contains only unique, configurable file extensions
+EndFunc
+
+Func _CopyHostToggle()
+	If BitAND(GUICtrlRead($copyhost), $GUI_CHECKED) Then
+		GUICtrlSetState($hostoverride, $GUI_ENABLE)
+	Else
+		GUICtrlSetState($hostoverride, BitOR($GUI_UNCHECKED, $GUI_DISABLE))
+	EndIf
+EndFunc
+
+Func _tGUIClose()
+	If $iconchange And $state = 1 Then ; if icons changed and active
+		If 6 = MsgBox(4 + 32, "File Types", "Changes have been made while associations are active" & @CRLF & "and will be applied now.  Continue?", 0, $tGUI) Then
+			$iconchange = False
+			_RemoveFtypeSettings()
+			_WriteFtypeSettings()
+			_RefreshNow()
+		Else
+			Return
+		EndIf
+	EndIf
+	GUISetState(@SW_HIDE, $tGUI)
+	GUISetState(@SW_ENABLE, $nGUI)
+	WinActivate($nGUI) ; bring to front
+EndFunc
+#EndRegion Types GUI Functions
+#Region SendTo GUI Functions
+Func _SendToGUI()
+	$sChanges = False
+	; empty listview
+	_GUICtrlListView_DeleteAllItems($hsLV)
+	; get listview items from ini
+	Local $aItems = IniReadSection($sendtoini, "sendto")
+	If IsArray($aItems) Then
+		For $i = 1 To $aItems[0][0]
+			_GUICtrlListView_AddSubItem($hsLV, _GUICtrlListView_AddItem($hsLV, $aItems[$i][0]), _GetFullCommand($aItems[$i][1]), 1)
+		Next
+	EndIf
+	GUISetState(@SW_DISABLE, $nGUI)
+	GUISetState(@SW_SHOW, $sGUI)
+EndFunc
+
+Func _MY_WINDOW_PROC($hWnd, $Msg, $wParam, $lParam)
+	#forceref $lParam
+	Switch $hWnd
+		Case $hsLV
+			Switch $Msg
+				Case $PFA_WM_DROPFILES
+					WinActivate($sGUI)
+					Dim $aDropFiles[1] = [0]
+					; string buffer for file path
+					Local $tDrop = DllStructCreate("char[260]")
+					; get file count
+					Local $aRet = DllCall("shell32.dll", "int", "DragQueryFile", _
+												"ptr", $wParam, _
+												"uint", -1, _
+												"ptr", DllStructGetPtr($tDrop), _
+												"int", DllStructGetSize($tDrop) _
+												)
+					Local $iCount = $aRet[0]
+
+					; get file paths
+					For $i = 0 To $iCount - 1
+						$aRet = DllCall("shell32.dll", "int", "DragQueryFile", _
+												"ptr", $wParam, _
+												"uint", $i, _
+												"ptr", DllStructGetPtr($tDrop), _
+												"int", DllStructGetSize($tDrop) _
+												)
+						; add dropped file path to array
+						$aDropFiles[0] += 1
+						_ArrayAdd($aDropFiles, DllStructGetData($tDrop, 1))
+					Next
+					; set the event for the drop action
+					GUICtrlSendToDummy($sDummy)
+					; finalize
+					DllCall("shell32.dll", "int", "DragFinish", "hwnd", $wParam)
+
+					Return 0
+			EndSwitch
+	EndSwitch
+
+	Return _WinAPI_CallWindowProc($oldWndProc, $hWnd, $Msg, $wParam, $lParam)
+EndFunc
+
+Func _sDropAction()
+	If $aDropFiles[0] < 1 Then Return
+	GUISetState(@SW_DISABLE, $sGUI)
+	; change to MSG mode and create our GUI
+	Opt("GUIOnEventMode", 0)
+
+	Local $gui = GUICreate("Shortcut Name", 418, 174, -1, -1, $WS_CAPTION, $WS_EX_TOOLWINDOW, $sGUI)
+	GUICtrlCreateLabel("Enter a name for this shortcut and any optional parameters:", 8, 8, 402, 17)
+	Local $scLabel = GUICtrlCreateLabel("", 20, 36, 402, 17)
+	GUICtrlCreateLabel("Shortcut Name:", 8, 84, 78, 17)
+	GUICtrlCreateLabel("Parameters (optional):", 8, 116, 106, 17)
+	Local $scName = GUICtrlCreateInput("New Shortcut", 96, 78, 313, 21)
+	Local $scParams = GUICtrlCreateInput("", 120, 110, 289, 21)
+	Local $scOK = GUICtrlCreateButton("Ok", 152, 140, 49, 25)
+	Local $scCancel = GUICtrlCreateButton("Cancel", 216, 140, 49, 25)
+
+	GUISetState()
+
+	Local $msg, $path, $err, $name, $file, $param
+
+	For $i = 1 To $aDropFiles[0]
+		$file = $aDropFiles[$i]
+		$path = DllCall("shlwapi.dll", "int", "PathCompactPathW", "hwnd", 0, "wstr", $file, "uint", 525)
+		$path = $path[2]
+		GUICtrlSetData($scLabel, $path)
+		GUICtrlSetData($scName, "New Shortcut")
+		GUICtrlSetData($scParams, "")
+
+		While 1
+			$msg = GUIGetMsg()
+			Switch $msg
+				Case $scOK
+					$name = GUICtrlRead($scName)
+					If $name <> "" Then
+						; check if the name exists
+						$err = 0 ; reset err condition
+						For $j = 0 To _GUICtrlListView_GetItemCount($hsLV) - 1
+							If $name = _GUICtrlListView_GetItemText($hsLV, $j) Then
+								MsgBox(48, "Error", "This shortcut name already exists." & @CRLF & "Please choose another name.", 0, $sGUI)
+								$err = 1
+								ExitLoop ; exit for loop
+							EndIf
+						Next
+						If Not $err Then
+							; create the listview item and move to next item in array
+							If StringInStr($file, ' ') Then $file = '"' & $file & '"'
+							$param = GUICtrlRead($scParams)
+							If $param <> "" Then
+								$file &= " " & $param
+							EndIf
+							_GUICtrlListView_AddSubItem($hsLV, _GUICtrlListView_AddItem($hsLV, $name), $file, 1)
+							$sChanges = True
+							ExitLoop ; exit while loop, next item
+						EndIf
+					EndIf
+				Case $scCancel
+					ExitLoop 2 ; exit main for loop
+			EndSwitch
+		WEnd
+	Next
+
+	GUIDelete($gui)
+	; return to OnEvent mode
+	Opt("GUIOnEventMode", 1)
+	_GUICtrlListView_SetColumnWidth($hsLV, 1, $LVSCW_AUTOSIZE_USEHEADER)
+	GUISetState(@SW_ENABLE, $sGUI)
+	WinActivate($sGUI)
+EndFunc
+
+Func _AddSendTo()
+	Local $sFile = FileOpenDialog("Add File", @WorkingDir, "All Files (*.*)", 3, "", $sGUI)
+	If @error Then Return
+	Dim $aDropFiles[2] = [1, $sFile]
+	_sDropAction()
+EndFunc
+
+Func _ClearSendTo()
+	_GUICtrlListView_DeleteAllItems($hsLV)
+	$sChanges = True
+EndFunc
+
+Func _RemoveSendTo()
+	_GUICtrlListView_DeleteItemsSelected($hsLV)
+	$sChanges = True
+EndFunc
+
+Func _SaveSendTo()
+	; check for state
+	If $state = 1 Then
+		; running
+		If 6 = MsgBox(4 + 32, "SendTo", "Saving while associations are active will immediately apply" & @CRLF & "the new settings.  Continue?", 0, $sGUI) Then
+			; remove current shortcuts
+			_DoSendToShortcuts(False)
+		Else
+			Return False ; don't close the dialog from close func
+		EndIf
+	EndIf
+	; remove old INI section
+	IniDelete($sendtoini, "sendto")
+	; write new section
+	For $i = 0 To _GUICtrlListView_GetItemCount($hsLV) - 1
+		IniWrite($sendtoini, "sendto", _GUICtrlListView_GetItemText($hsLV, $i), _GetRelCommand(_GUICtrlListView_GetItemText($hsLV, $i, 1)))
+	Next
+	$sChanges = False
+	If $state = 1 Then _DoSendToShortcuts() ; apply new shortcuts
+	MsgBox(64, "SendTo", "Saved.", 0, $sGUI)
+	Return True ; close the dialog from close func
+EndFunc
+
+Func _sCloseGUI()
+	If $sChanges Then
+		If 6 = MsgBox(4 + 32, "SendTo", "Save changes before closing?", 0, $sGUI) Then
+			If Not _SaveSendTo() Then Return ; don't close if we canceled applying settings
+		EndIf
+	EndIf
+	$sChanges = False
+	GUISetState(@SW_HIDE, $sGUI)
+	GUISetState(@SW_ENABLE, $nGUI)
+	WinActivate($nGUI)
+EndFunc
+#EndRegion SendTo GUI Functions
+#Region Main Functions
+;=======================================================================================
+; Main Functions
+;=======================================================================================
+
+Func _ConfigureShellNew($sExtension, $fEnable, $sTemplate = "")
+	Local $sExtKey = "HKCU\Software\Classes\." & $sExtension
+	Local $sShellNew = $sExtKey & "\ShellNew"
+	Local $sBackup = $sExtKey & "\ShellNew_PFA_BACKUP"
+	Local $sMarker = RegRead($sExtKey, "_PFA_ShellNewBackup")
+
+	If $fEnable Then
+		; Back up the host ShellNew key only once, so disabling PFA can restore it.
+		If $sMarker = "" Then
+			If _RegKeyExists($sShellNew) Then
+				_RegCopyKey($sShellNew, $sBackup)
+				RegWrite($sExtKey, "_PFA_ShellNewBackup", "REG_SZ", "1")
+			Else
+				RegWrite($sExtKey, "_PFA_ShellNewBackup", "REG_SZ", "0")
+			EndIf
+		EndIf
+		If $sTemplate <> "" And FileExists($sTemplate) Then
+			RegDelete($sShellNew, "NullFile")
+			RegWrite($sShellNew, "FileName", "REG_SZ", $sTemplate)
+		Else
+			RegDelete($sShellNew, "FileName")
+			RegWrite($sShellNew, "NullFile", "REG_SZ", "")
+		EndIf
+	Else
+		_RestoreShellNew($sExtension)
+	EndIf
+EndFunc
+
+Func _RestoreShellNew($sExtension)
+	Local $sExtKey = "HKCU\Software\Classes\." & $sExtension
+	Local $sShellNew = $sExtKey & "\ShellNew"
+	Local $sBackup = $sExtKey & "\ShellNew_PFA_BACKUP"
+	Local $sMarker = RegRead($sExtKey, "_PFA_ShellNewBackup")
+
+	If $sMarker = "" Then Return
+	RegDelete($sShellNew)
+	If $sMarker = "1" And _RegKeyExists($sBackup) Then _RegCopyKey($sBackup, $sShellNew)
+	RegDelete($sBackup)
+	RegDelete($sExtKey, "_PFA_ShellNewBackup")
+EndFunc
+
+Func _WriteFtypeSettings()
+	Local $aExts = IniReadSectionNames($typesini)
+	If IsArray($aExts) Then
+		For $i = 1 To $aExts[0]
+			If $aExts[$i] = "exe" Or $aExts[$i] = "com" Or $aExts[$i] = "" Then ContinueLoop
+			Local $icon = _GetFullIcon(IniRead($typesini, $aExts[$i], "icon", "")) ; get icon
+			Local $fHide = (Number(IniRead($typesini, $aExts[$i], "hide", $GUI_UNCHECKED)) = $GUI_CHECKED)
+			Local $fCopyhost = (Number(IniRead($typesini, $aExts[$i], "copyhost", $GUI_UNCHECKED)) = $GUI_CHECKED)
+			Local $fHostoverride = (Number(IniRead($typesini, $aExts[$i], "hostoverride", $GUI_UNCHECKED)) = $GUI_CHECKED)
+			Local $ftype = "PortableFileAssoc_" & $aExts[$i]
+			Local $origftype = RegRead("HKCR\." & $aExts[$i], "")
+			Local $origdefaultassoc = RegRead("HKCR\" & $origftype & "\shell", "")
+			Local $defPFAassoc = IniRead($typesini, $aExts[$i], "default", "(no default)")
+			; write extension data
+			If _RegKeyExists("HKCU\Software\Classes\." & $aExts[$i]) Then
+				; extension exists
+				If _RegValueExists("HKCU\Software\Classes\." & $aExts[$i], "") Then
+					; default value exists (original file type), back up first
+					_RegMoveValue("HKCU\Software\Classes\." & $aExts[$i], "", "HKCU\Software\Classes\." & $aExts[$i], "_old_default_")
+				Else
+					; no default value, set flag
+					RegWrite("HKCU\Software\Classes\." & $aExts[$i], "_old_default_", "REG_SZ", "_none_")
+				EndIf
+			Else
+				; extension does not exist, set _delete_ flag
+				RegWrite("HKCU\Software\Classes\." & $aExts[$i], "_delete_", "REG_SZ", "")
+			EndIf
+			; set extension ftype
+			RegWrite("HKCU\Software\Classes\." & $aExts[$i], "", "REG_SZ", $ftype)
+			; Set the file type display name (also used by Explorer's New menu).
+			Local $newDisplayName = StringStripWS(IniRead($typesini, $aExts[$i], "newname", ""), 3)
+			If $newDisplayName = "" Then $newDisplayName = "PFA_" & $aExts[$i] & " File"
+			RegWrite("HKCU\Software\Classes\" & $ftype, "", "REG_SZ", $newDisplayName)
+			; Optional Explorer > New submenu entry (creates an empty file).
+			Local $fShowNew = (Number(IniRead($typesini, $aExts[$i], "shownew", $GUI_UNCHECKED)) = $GUI_CHECKED)
+			Local $fUseTemplate = ($fShowNew And Number(IniRead($typesini, $aExts[$i], "usetemplate", $GUI_UNCHECKED)) = $GUI_CHECKED)
+			Local $sTemplate = ""
+			If $fUseTemplate Then
+				$sTemplate = _GetNewItemsTemplatePath($aExts[$i])
+				If Not FileExists($sTemplate) Then
+					MsgBox(48, "File Types - Template Missing", "Please add the file with this name:" & @CRLF & @CRLF & _
+						StringUpper($aExts[$i]) & "." & $aExts[$i] & @CRLF & @CRLF & "Folder: Data\newitems")
+					; Keep the rest of this extension's association setup intact, but do not add it to New.
+					_RestoreShellNew($aExts[$i])
+					$fShowNew = False
+				EndIf
+			EndIf
+			_ConfigureShellNew($aExts[$i], $fShowNew, $sTemplate)
+			; backup FileExts key
+			If _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) Then ; key exists
+				; backup
+				_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i], _
+							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA")
+				; don't copy any defaut "Open With..." settings
+				_RegCopyKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA\OpenWithList", _
+							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "\OpenWithList")
+				_RegCopyKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA\OpenWithProgids", _
+							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "\OpenWithProgids")
+			Else
+				; fake backup
+				RegWrite("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_none")
+			EndIf
+			; copy host associations if checked and they exist
+			If $fCopyhost And $origftype <> "" Then
+				Local $j = 1, $key, $displayname
+				While 1
+					; loop all keys
+					$key = RegEnumKey("HKCR\" & $origftype & "\shell", $j)
+					If @error Then ExitLoop
+					; copy key to new ftype
+					_RegCopyKey("HKCR\" & $origftype & "\shell\" & $key, "HKCU\Software\Classes\" & $ftype & "\shell\Host_" & $key)
+					; rename display value
+					$displayname = RegRead("HKCU\Software\Classes\" & $ftype & "\shell\Host_" & $key, "")
+					If $displayname = "" Then
+						$displayname = "HOST: " & _StringProper($key)
+					Else
+						$displayname = "HOST: " & _StringProper($displayname)
+					EndIf
+					RegWrite("HKCU\Software\Classes\" & $ftype & "\shell\Host_" & $key, "", "REG_SZ", $displayname)
+					$j += 1
+				WEnd
+			EndIf
+			; default association value
+			If $defPFAassoc = "(no default)" Or $fHostoverride Then
+				; try host default first
+				If $fCopyhost And $origdefaultassoc <> "" Then
+					; write default host association
+					RegWrite("HKCU\Software\Classes\" & $ftype & "\shell", "", "REG_SZ", "Host_" & $origdefaultassoc)
+				ElseIf $fCopyhost Then
+					; try to use open verb for host default
+					If _RegKeyExists("HKCR\" & $origftype & "\shell\open") Then _
+						RegWrite("HKCU\Software\Classes\" & $ftype & "\shell", "", "REG_SZ", "Host_open")
+				EndIf
+			EndIf
+			; host override true if originally true and successfully set a host default association
+			$fHostoverride = $fHostoverride And (RegRead("HKCU\Software\Classes\" & $ftype & "\shell", "") <> "")
+			; set PFA default if not empty and host did not override
+			If $defPFAassoc <> "(no default)" And Not $fHostoverride Then
+				; write default PFA association
+				For $j = 1 To $aDefaultAssociations[0]
+					Local $aSplit = StringSplit($aDefaultAssociations[$j], ",")
+					; aSplit: [1] = extension, [2] = association name, [3] = association command
+					If $aExts[$i] = $aSplit[1] And $defPFAassoc = $aSplit[2] Then
+						; extension and association match, write command
+						RegWrite("HKCU\Software\Classes\" & $ftype & "\shell", "", "REG_SZ", $aSplit[3])
+						ExitLoop
+					EndIf
+				Next
+			EndIf
+			; create 'open' key for XP 'New' menu hack if there is a 'ShellNew' key for the extension
+			If Not $fVistaOrBetter And _RegKeyExists("HKCR\." & $aExts[$i] & "\ShellNew") Then
+				; find a suitable open default
+				Local $opencmd
+				; if default exists
+				Local $openverb = RegRead("HKCU\Software\Classes\" & $ftype & "\shell", "")
+				If $openverb <> "" Then
+					$opencmd = RegRead("HKCU\Software\Classes\" & $ftype & "\shell\" & $openverb & "\command", "")
+				Else
+					; we have to write something, so use PFA's first association
+					Local $sections = _ReadINISections()
+					For $k = 1 To $sections[0]
+						; search mode array of each section for matching filetype, use that command
+						Local $aMode = StringSplit(IniRead($associni, $sections[$k], "mode", "none"), "|")
+						_ArraySearch($aMode, $aExts[$i])
+						If Not @error Then
+							$opencmd = _GetFullCommand(IniRead($associni, $sections[$k], "command", "none"))
+							ExitLoop
+						EndIf
+					Next
+				EndIf
+				; write default command if found
+				If $opencmd <> "" And $opencmd <> "none" Then RegWrite("HKCU\Software\Classes\" & $ftype & "\shell\open\command", "", "REG_SZ", $opencmd)
+			EndIf
+			; write icon
+			Local $failover = False
+			; PFA default association overrides host icon, if host doesn't take precedence
+			; if host associations are active and no PFA default set or host takes precedence, use host icon if it exists, otherwise failover to PFA icon
+			If $fCopyhost And ($fHostoverride Or $defPFAassoc = "(no default)") Then
+				If _RegKeyExists("HKCR\" & $origftype & "\DefaultIcon") Then
+					_RegCopyKey("HKCR\" & $origftype & "\DefaultIcon", "HKCU\Software\Classes\" & $ftype & "\DefaultIcon")
+				Else
+					$failover = True
+				EndIf
+			EndIf
+			; write PFA icon if it exists and host associations are not active, there is a PFA default association, or the host icon was not found
+			If $icon <> "" And (Not $fCopyhost Or ($defPFAassoc <> "(no default)" And Not $fHostoverride) Or $failover) Then _
+				RegWrite("HKCU\Software\Classes\" & $ftype & "\DefaultIcon", "", "REG_SZ", $icon)
+			; write NeverShowExt value
+			If $fHide Then RegWrite("HKCU\Software\Classes\" & $ftype, "NeverShowExt", "REG_SZ", "")
+			; special key for URL filetype (always exists by default)
+			If StringUpper($aExts[$i]) = "URL" Then _
+				RegWrite("HKCU\Software\Classes\" & $ftype & "\shellex\IconHandler", "", "REG_SZ", "{FBF23B40-E3F0-101B-8488-00AA003E56F8}")
+		Next
+	EndIf
+EndFunc
+
+Func _RemoveFtypeSettings($fFinal = False)
+	Local $i, $ftype, $j, $key
+
+	Local $aExts = IniReadSectionNames($typesini)
+	If IsArray($aExts) Then
+		For $i = 1 To $aExts[0]
+			If $aExts[$i] = "exe" Or $aExts[$i] = "com" Or $aExts[$i] = "" Then ContinueLoop
+			$ftype = "PortableFileAssoc_" & $aExts[$i]
+			If $fFinal Then
+				;; ====== do these only on final removal
+				; remove PFA New-menu registration value and file type
+				_RestoreShellNew($aExts[$i])
+				RegDelete("HKCU\Software\Classes\" & $ftype)
+				If _RegValueExists("HKCU\Software\Classes\." & $aExts[$i], "_delete_") Then
+					; delete extension
+					RegDelete("HKCU\Software\Classes\." & $aExts[$i])
+				EndIf
+			Else
+				;; ====== do these only on ftype settings changes
+				_RestoreShellNew($aExts[$i])
+				; remove host associations
+				$j = 1
+				While 1
+					$key = RegEnumKey("HKCU\Software\Classes\" & $ftype & "\shell", $j)
+					If @error Then ExitLoop
+					; check for Host_ key
+					If StringLeft($key, 5) = "Host_" Then RegDelete("HKCU\Software\Classes\" & $ftype & "\shell\" & $key)
+					$j += 1
+				WEnd
+				; remove default value
+				RegDelete("HKCU\Software\Classes\" & $ftype & "\shell", "")
+				; remove DefaultIcon setting
+				RegDelete("HKCU\Software\Classes\" & $ftype & "\DefaultIcon")
+				; remove NeverShowExt setting
+				RegDelete("HKCU\Software\Classes\" & $ftype, "NeverShowExt")
+			EndIf
+			;; ====== do these every time
+			; restore default value
+			If _RegKeyExists("HKCU\Software\Classes\." & $aExts[$i]) Then
+				If RegRead("HKCU\Software\Classes\." & $aExts[$i], "_old_default_") = "_none_" Then
+					RegDelete("HKCU\Software\Classes\." & $aExts[$i], "")
+					RegDelete("HKCU\Software\Classes\." & $aExts[$i], "_old_default_")
+				Else
+					_RegMoveValue("HKCU\Software\Classes\." & $aExts[$i], "_old_default_", "HKCU\Software\Classes\." & $aExts[$i], "")
+				EndIf
+			EndIf
+			; restore FileExts key
+			If _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_none") Then ; fake key exists
+				; delete .ext and fake
+				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
+				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_none")
+			; fake key does not exist, restore backup if it exists
+			ElseIf _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA") Then ; key exists
+				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
+				_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA", _
+							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
+			; else already in original state
+			EndIf
+		Next
+	EndIf
+EndFunc
+
+Func _DoSendToShortcuts($fAdd = True)
+	Local $aSplit
+	Local Const $CSIDL_SENDTO = 0x0009
+	Local Const $CSIDL_FLAG_NO_ALIAS = 0x1000
+	Local Const $SHGFP_TYPE_CURRENT = 0x0000
+	Local $aItems = IniReadSection($sendtoini, "sendto")
+	If IsArray($aItems) Then
+		Local $SendTo = _WinAPI_SHGetFolderPath(BitOR($CSIDL_FLAG_NO_ALIAS, $CSIDL_SENDTO), $SHGFP_TYPE_CURRENT)
+		If @error Then Return ; some error getting SendTo location
+		For $i = 1 To $aItems[0][0]
+			If $fAdd Then
+				; [0] = exe path, [1] = args
+				$aSplit = _CommandSplit(_GetFullCommand($aItems[$i][1]))
+				FileCreateShortcut($aSplit[0], $SendTo & "\" & $aItems[$i][0] & " PFA.lnk", "", $aSplit[1])
+			Else
+				FileDelete($SendTo & "\" & $aItems[$i][0] & " PFA.lnk")
+			EndIf
+		Next
+	EndIf
+EndFunc
+
+Func _FileAssociations($work)
+	Local $section, $mode, $title, $command, $j, $ftype, $exename, $icon, $verbKey, $targetClass
+
+	Switch $work
+		Case "add" ; add context menu entries
+			If $state = 1 Then Return ; don't do anything if already installed
+			; write state data and set variable
+			IniWrite($stateini, "state", "state", "1")
+			$state = 1
+			$section = _ReadINISections()
+			For $i = 1 To $section[0]
+				If Number(IniRead($associni, $section[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then ContinueLoop ; disabled association
+				$mode = StringSplit(IniRead($associni, $section[$i], "mode", "none"), "|") ; read mode into array
+				$title = IniRead($associni, $section[$i], "title", "none")
+				$command = _GetFullCommand(IniRead($associni, $section[$i], "command", "none")) ; resolve relative path
+				$icon = _GetFullIcon(IniRead($associni, $section[$i], "icon", ""))
+				If $section[$i] = "" Or $mode[1] = "none" Or $title = "none" Or $command = "none" Then ; if any errors reading INI, goto next section
+					MsgBox(0, "Error", "Error reading INI section." & @CRLF & "Section = `" & $section[$i] & "`")
+					ContinueLoop
+				EndIf
+				For $j = 1 To $mode[0]
+					$verbKey = ""
+					Switch $mode[$j] ; write reg entries based on mode
+						Case "drives" ; add to all drives
+							$verbKey = "HKCU\Software\Classes\Drive\shell\PortableFileAssoc_" & $section[$i]
+							RegWrite($verbKey, "", "REG_SZ", $title)
+							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
+						Case "files" ; add to all files
+							$verbKey = "HKCU\Software\Classes\*\shell\PortableFileAssoc_" & $section[$i]
+							RegWrite($verbKey, "", "REG_SZ", $title)
+							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
+						Case "folders" ; add to all folders
+							$verbKey = "HKCU\Software\Classes\Directory\shell\PortableFileAssoc_" & $section[$i]
+							RegWrite($verbKey, "", "REG_SZ", $title)
+							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
+						Case "recycle" ; add to recycle bin
+							$verbKey = "HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell\" & $title
+							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
+						Case Else ; add based on file extension
+							If $mode[$j] = "" Then ContinueLoop ; no blank extension
+							; EXE/COM get a context-menu verb on their existing Windows class.
+							; This does not replace or modify their default open action.
+							Switch StringLower($mode[$j])
+								Case "exe"
+									$targetClass = "exefile"
+								Case "com"
+									$targetClass = "comfile"
+								Case Else
+									$targetClass = "PortableFileAssoc_" & $mode[$j]
+							EndSwitch
+							; write association data
+							$verbKey = "HKCU\Software\Classes\" & $targetClass & "\shell\PFA_" & $i & "_" & $j
+							RegWrite($verbKey, "", "REG_SZ", $title)
+							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
+							; Only normal extensions are listed as configurable PFA file types.
+							If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" Then
+								$aDefaultAssociations[0] += 1
+								_ArrayAdd($aDefaultAssociations, $mode[$j] & "," & $section[$i] & ",PFA_" & $i & "_" & $j)
+							EndIf
+					EndSwitch
+					; Windows shell verbs support an Icon value on the verb key.
+					If $verbKey <> "" Then
+						If $icon <> "" Then
+							RegWrite($verbKey, "Icon", "REG_SZ", $icon)
+						Else
+							RegDelete($verbKey, "Icon")
+						EndIf
+					EndIf
+				Next
+				; backup Applications keys
+				$exename = _GetExeName($command) ; get commandline EXE name
+				; if key and fake do not exist, backup original if it exists
+				If Not _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_PFA") And _
+					Not _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_none") Then
+					If _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename) Then ; key exists
+						_RegMoveKey("HKCU\Software\Classes\Applications\" & $exename, _
+									"HKCU\Software\Classes\Applications\" & $exename & "_PFA")
+					Else
+						; fake backup
+						RegWrite("HKCU\Software\Classes\Applications\" & $exename & "_none")
+					EndIf
+				; else already backed up, leave it alone
+				EndIf
+				If IsAdmin() Then ; admin account
+					; if key and fake do not exist, backup original if it exists
+					If Not _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_PFA") And _
+						Not _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_none") Then
+						If _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename) Then ; key exists
+							_RegMoveKey("HKLM\Software\Classes\Applications\" & $exename, _
+										"HKLM\Software\Classes\Applications\" & $exename & "_PFA")
+						Else
+							; fake backup
+							RegWrite("HKLM\Software\Classes\Applications\" & $exename & "_none")
+						EndIf
+					; else already backed up, leave it alone
+					EndIf
+				EndIf
+			Next
+			_WriteFtypeSettings()
+			_RefreshNow()
+			_DoSendToShortcuts()
+		Case "remove" ; remove context menu entries
+			If $state = 0 Then Return ; don't do anything if not installed
+			; change state status
+			IniWrite($stateini, "state", "state", "0")
+			$state = 0
+			$section = _ReadINISections()
+			For $i = 1 To $section[0]
+				If Number(IniRead($associni, $section[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then ContinueLoop ; disabled association
+				$mode = StringSplit(IniRead($associni, $section[$i], "mode", "none"), "|") ; read mode into array
+				$title = IniRead($associni, $section[$i], "title", "none")
+				$command = _GetFullCommand(IniRead($associni, $section[$i], "command", "none")) ; resolve relative path
+				If $section[$i] = "" Or $mode[1] = "none" Or $title = "none" Then ; if any errors reading INI, goto next section
+					ContinueLoop
+				EndIf
+				For $j = 1 To $mode[0]
+					Switch $mode[$j]
+						Case "drives" ; remove from all drives
+							RegDelete("HKCU\Software\Classes\Drive\Shell\PortableFileAssoc_" & $section[$i])
+							If _RegKeyEmpty("HKCU\Software\Classes\Drive\Shell") Then RegDelete("HKCU\Software\Classes\Drive\Shell") ; if Shell key empty, delete it
+							If _RegKeyEmpty("HKCU\Software\Classes\Drive") Then RegDelete("HKCU\Software\Classes\Drive") ; if Drive key empty, delete it
+						Case "files" ; remove from all files
+							RegDelete("HKCU\Software\Classes\*\Shell\PortableFileAssoc_" & $section[$i])
+							If _RegKeyEmpty("HKCU\Software\Classes\*\Shell") Then RegDelete("HKCU\Software\Classes\*\Shell") ; if Shell key empty, delete it
+							If _RegKeyEmpty("HKCU\Software\Classes\*") Then RegDelete("HKCU\Software\Classes\*") ; if * key empty, delete it
+						Case "folders" ; remove from all folders
+							RegDelete("HKCU\Software\Classes\Directory\Shell\PortableFileAssoc_" & $section[$i])
+							If _RegKeyEmpty("HKCU\Software\Classes\Directory\Shell") Then RegDelete("HKCU\Software\Classes\Directory\Shell") ; if Shell key empty, delete it
+							If _RegKeyEmpty("HKCU\Software\Classes\Directory") Then RegDelete("HKCU\Software\Classes\Directory") ; if Folder key empty, delete it
+						Case "recycle" ; remove from recycle bin
+							RegDelete("HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell\" & $title)
+							If _RegKeyEmpty("HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell") Then _
+								RegDelete("HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell") ; if Shell key empty, delete it
+							If _RegKeyEmpty("HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}") Then _
+								RegDelete("HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}") ; if Recycle Bin key empty, delete it
+							If _RegKeyEmpty("HKCU\Software\Classes\CLSID") Then RegDelete("HKCU\Software\Classes\CLSID") ; if CLSID key empty, delete it
+						Case Else ; remove extension-specific context-menu entry
+							If $mode[$j] = "" Then ContinueLoop
+							Switch StringLower($mode[$j])
+								Case "exe"
+									$targetClass = "exefile"
+								Case "com"
+									$targetClass = "comfile"
+								Case Else
+									$targetClass = "PortableFileAssoc_" & $mode[$j]
+							EndSwitch
+							RegDelete("HKCU\Software\Classes\" & $targetClass & "\shell\PFA_" & $i & "_" & $j)
+						EndSwitch
+				Next
+				; reset default association array
+				Dim $aDefaultAssociations[1] = [0]
+				; restore Applications keys
+				$exename = _GetExeName($command) ; get commandline EXE name
+				If _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_none") Then ; fake key exists
+					; delete key and fake
+					RegDelete("HKCU\Software\Classes\Applications\" & $exename)
+					RegDelete("HKCU\Software\Classes\Applications\" & $exename & "_none")
+				; fake key does not exist, restore backup if it exists
+				ElseIf _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_PFA") Then ; key exists
+					RegDelete("HKCU\Software\Classes\Applications\" & $exename)
+					_RegMoveKey("HKCU\Software\Classes\Applications\" & $exename & "_PFA", _
+								"HKCU\Software\Classes\Applications\" & $exename)
+				; else already in original state
+				EndIf
+				If IsAdmin() Then ; admin account
+					If _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_none") Then ; fake key exists
+						; delete key and fake
+						RegDelete("HKLM\Software\Classes\Applications\" & $exename)
+						RegDelete("HKLM\Software\Classes\Applications\" & $exename & "_none")
+					; fake key does not exist, restore backup if it exists
+					ElseIf _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_PFA") Then ; key exists
+						RegDelete("HKLM\Software\Classes\Applications\" & $exename)
+						_RegMoveKey("HKLM\Software\Classes\Applications\" & $exename & "_PFA", _
+									"HKLM\Software\Classes\Applications\" & $exename)
+					; else already in original state
+					EndIf
+				EndIf
+			Next
+			_RemoveFtypeSettings(True)
+			_RefreshNow()
+			_DoSendToShortcuts(False)
+		Case Else ; invalid commandline
+			MsgBox(16, "Error", "Invalid argument.")
+			Exit
+	EndSwitch
+EndFunc
+
+Func _Exit()
+	If $onclose = 1 Then _FileAssociations("remove") ; remove entries
+	; reset original listview window procedure and free the callback
+	If $oldWndProc Then _WinAPI_SetWindowLong($hsLV, $GWL_WNDPROC, $oldWndProc)
+	If $pWndProc Then DllCallbackFree($pWndProc)
+	Exit
+EndFunc
+#EndRegion Main Functions
