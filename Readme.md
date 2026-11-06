@@ -37,37 +37,54 @@ Take your file associations with you. Open local files with your portable applic
 | Field | Description |
 |---|---|
 | **Association Name** | The name of the association as recorded in the GUI list and INI file. It cannot include the characters `,` or `*`. |
-| **Associated Types** | Where the entry appears (see the table below). |
+| **Associated Types** | File **extensions only**, separated by `\|`, e.g. `txt\|log\|ini` (do not include the period). Disabled while **Files** is ticked. |
+| **Also add to** | Five tick boxes for the special targets (see below). |
 | **Single file type** | Show the association only when **one** item is selected. With several items selected the entry is hidden. |
+| **Run as Admin** | Start the command with administrator rights (UAC prompt). See [Run as Admin](#run-as-admin). |
+| **Disabled** | Disable the current association without deleting it. |
 | **Title** | The name as it appears in the context menu. Make sure it is **unique** so it does not conflict with local entries. |
 | **Context-menu icon** | Optional icon next to the entry (`.ico`, `.exe` or `.dll`). Relative paths are portable. |
 | **Icon index** | Icon number inside a multi-icon file. Usually `0` for `.ico` files. |
-| **Disabled** | Disable the current association without deleting it. |
 | **Command** | The command line to execute (see [Command tokens](#command-tokens)). |
+| **Folder Command** | Command for folders (see [Folder Command and Drive Command](#folder-command-and-drive-command)). |
+| **Drive Command** | Command for drives (see [Folder Command and Drive Command](#folder-command-and-drive-command)). |
 
-### Associated Types
+### Targets
 
-| Type | Entry is added to | Registry location (HKCU) |
+**File extensions** go into *Associated Types*. `exe` and `com` add an entry to program files without changing their normal open action.
+
+The special targets are tick boxes under **Also add to**. Any combination can be ticked, together with file extensions.
+
+| Tick box | Entry is added to | Registry location (HKCU) |
 |---|---|---|
-| `drives` | all drives | `Software\Classes\Drive\shell` |
-| `file` | all files | `Software\Classes\*\shell` |
-| `folder` | all folders | `Software\Classes\Directory\shell` |
-| `background` | empty space of a folder window and of the Desktop (like "Open Terminal here") | `Software\Classes\Directory\Background\shell` |
-| `recycle` | the Recycle Bin | `Software\Classes\CLSID\{645FF040-…}\shell` |
-| `exe` / `com` | program files (their normal open action is not changed) | on the existing `exefile` / `comfile` class |
-| `<extension>` | a specific file extension, e.g. `txt` (do not include the period) | `Software\Classes\PortableFileAssoc_<ext>\shell` |
+| **Files** | all files, any extension (`*` wildcard) | `Software\Classes\*\shell` |
+| **Folders** | all folders (*Folder Command*) | `Software\Classes\Directory\shell` |
+| **Drives** | all drives (*Drive Command*) | `Software\Classes\Drive\shell` |
+| **Recycle Bin** | the Recycle Bin | `Software\Classes\CLSID\{645FF040-…}\shell` |
+| **Background** | empty space of a folder window and of the Desktop (like "Open Terminal here") | `Software\Classes\Directory\Background\shell` |
+| *extension* | a specific file extension, e.g. `txt` | `Software\Classes\PortableFileAssoc_<ext>\shell` |
 
-Separate more than one type with the `|` (pipe) character, e.g. `file|folder` or `txt|log|ini`.
+> **Files** already covers every file, so the *Associated Types* box is disabled while it is ticked.
 
-> **Note:** Older INI files that use `files` or `folders` still work. They are treated as `file` and `folder`.
+> **Migration:** Older INI files that listed `drives`, `files`, `folders`, `recycle` or `background` in the Associated Types box are converted automatically when the profile is loaded. The word is removed from the box and the matching tick box is set. If `files` was used, the extension list is dropped (Files covers every file). An association that was only for drives keeps its old command as the Drive Command. These words can no longer be typed into the Associated Types box.
+>
+> Older folders-only associations that kept their command in `command` are converted too: the command becomes the `foldercommand` (and the `drivecommand` as well, if Drives is ticked and has no Drive Command).
+
+### Run as Admin
+
+- Tick **Run as Admin** to start the command with administrator rights. Windows asks for confirmation (UAC) each time the entry is used.
+- Works for **Files**, **Folders**, **Drives**, **Background** and file extensions. Not used by **Recycle Bin**.
+- The setting applies to every target of the association. Use two associations if you need different behaviour.
+- Admin entries do not start your program directly. They start `PortableFileAssociator.exe` (internal parameters `multi_open_admin` / `bg_open_admin`), which then starts the program elevated. PFA must stay at the same place while associations are active.
+- Unchecked: the command runs normally.
 
 ### Single file type
 
-- Works for the types `file`, `folder` and file extensions (e.g. `iso`).
+- Works for **Files**, **Folders**, **Drives** and file extensions (e.g. `iso`).
 - Unchecked: the entry is shown for single **and** multiple selection.
 - Checked: the entry is shown only when exactly one item is selected.
-- Not used by `drives`, `background` and `recycle`.
-- The setting applies to every extension in the *Associated Types* box. Use two associations if you need different behaviour per extension.
+- Not used by Recycle Bin and Background.
+- The setting applies to every target of the association. Use two associations if you need different behaviour.
 
 ### Command tokens
 
@@ -77,7 +94,7 @@ The application path must be surrounded by `"` (double quotes) if it contains sp
 |---|---|
 | `%1` | Path of the clicked-on file, folder or drive. Explorer starts **one run per selected item**. |
 | `%%1` | **All** selected items in **one** run, each in quotes. |
-| `%V` | The current folder. Meant for the type `background` (also works for folders). |
+| `%V` | The current folder. Meant for **Background** (also works for folders). |
 
 **`%1` example**
 
@@ -94,9 +111,12 @@ The application path must be surrounded by `"` (double quotes) if it contains sp
 How `%%1` works:
 
 - Explorer starts one process per selected item, so PFA registers a small wrapper (`PortableFileAssociator.exe multi_open ...`).
-- The wrapper processes collect their files, and the first one starts your command. It waits about 0.7 seconds for the other files.
+- The wrapper processes collect their files, and the first one starts your command. It waits about 1.5 seconds for the other files.
 - Files are passed in name order, like Explorer's default sort.
 - Very long selections are split into several runs (about 30000 characters per command line).
+- `%%1` works for **Files**, **Folders**, **Drives** and file extensions. With Folders or Drives it passes all selected folders / drives in one run.
+- A drive root such as `E:\` is passed safely (as `"E:\\"`), so the closing quote is not swallowed.
+- The command is started with `ShellExecute`, so programs that need administrator rights (for example FastCopy) show the normal Windows confirmation (UAC) instead of failing silently. Tick **Run as Admin** to always start the command elevated.
 
 **`%V` examples**
 
@@ -109,15 +129,45 @@ How `%V` works:
 
 - The command is started inside that folder.
 - A drive root such as `C:\` is passed safely (as `"C:\\"`), so terminals do not fail on the trailing backslash.
-- For the type `background`, `%V`, `%1` and `%%1` all mean "this folder".
+- For **Background**, `%V`, `%1` and `%%1` all mean "this folder".
+- With **Run as Admin**, `%1` commands of Files, Folders and Drives are started the same way (through PFA), and `%V` / `%1` mean "the clicked-on item".
 
-> **Note:** PFA must stay at the same place while associations are active, because `%%1` and `background` entries start `PortableFileAssociator.exe`.
+> **Note:** PFA must stay at the same place while associations are active, because `%%1` and Background entries start `PortableFileAssociator.exe`.
+
+The **Command** box is disabled when only **Folders** and / or **Drives** are ticked (no Files, Recycle Bin, Background or extensions). Then each ticked Folders / Drives box must have its own Folder Command / Drive Command. Otherwise the Command is needed.
+
+### Folder Command and Drive Command
+
+**Folder Command** is enabled only when **Folders** is ticked, **Drive Command** only when **Drives** is ticked. In a Folder Command use `%1` for the folder (one run per folder) or `%%1` for all selected folders in one run.
+
+If a Folder Command / Drive Command is empty and the association also has other targets (Files, Recycle Bin, Background or extensions), folders / drives simply use the **Command**. Fill them in when folders or drives need a different command line.
+
+| Association targets | Command | Folder / Drive Command |
+|---|---|---|
+| Only **Folders**, Folder Command filled in | disabled | used for folders |
+| Only **Drives**, Drive Command filled in | disabled | used for drives |
+| Only **Folders** or only **Drives**, command empty | – | Save shows an error, the command is required |
+| **Folders** + **Drives** + **Background** | used for Background, and for folders / drives without their own command | used for folders / drives when filled in |
+
+A drive path such as `E:\` ends with a backslash, so write `%1` or `%V` **without quotes** in the Drive Command. In a Command, `"E:\"` would turn into an escaped quote and many programs fail.
+
+Example — the same portable terminal for folders, background and drives:
+
+```
+Command:        "E:\PortableApps\TerminalPortable\TerminalPortable.exe" -d "%1"
+Folder Command: "E:\PortableApps\TerminalPortable\TerminalPortable.exe" -d "%1"
+Drive Command:  "E:\PortableApps\TerminalPortable\TerminalPortable.exe" -d %1
+```
+
+(`-d %V` works as well.)
 
 ### Buttons
 
 | Button | Action |
 |---|---|
-| **...** (next to Command) | Browse for the program. Inserts `"%V"` when the type is only `background`, otherwise `"%1"`. |
+| **...** (next to Command) | Browse for the program. Inserts `"%V"` when Background is the only target, otherwise `"%1"`. |
+| **...** (next to Folder Command) | Browse for the program. Inserts `"%1"`. |
+| **...** (next to Drive Command) | Browse for the program. Inserts `%1`. |
 | **Clear** | Clear all fields. |
 | **Save** | Save association changes. Must be done after each change. Asks before overwriting an existing association. |
 | **Delete** | Delete the selected association. The last association cannot be deleted. |
@@ -131,14 +181,24 @@ Associations are stored in `Data\settings\<profile>_assoc.ini`, one section per 
 ```ini
 [My Association]
 mode=iso|img
+files=1
+folders=1
+drives=1
+recycle=1
+background=1
 title=Open with MyApp
 command='"..\MyApp\MyApp.exe" "%1"'
+foldercommand='"..\MyApp\MyApp.exe" "%1"'
+drivecommand='"..\MyApp\MyApp.exe" %1'
 icon=...
 disabled=4
 single=1
+admin=1
 ```
 
-`single=1` is only present when **Single file type** is checked.
+- `mode` holds the file extensions only.
+- `files`, `folders`, `drives`, `recycle`, `background`, `single` and `admin` are only present when the tick box is checked (`=1`).
+- `foldercommand` and `drivecommand` are only present when a Folder Command / Drive Command is set.
 
 ---
 
@@ -289,7 +349,7 @@ If PFA is already running, one command line parameter is available:
 |---|---|
 | `exit` | Close the running instance of PFA. File associations are removed based on the setting *Remove associations on close*. |
 
-> **Internal parameters:** `multi_open` and `bg_open` are used by the context-menu entries created for `%%1` and `background` commands. They are not meant to be started by hand.
+> **Internal parameters:** `multi_open` and `bg_open` are used by the context-menu entries created for `%%1` and Background commands. `multi_open_admin` and `bg_open_admin` are the same with **Run as Admin** (elevated start). They are not meant to be started by hand.
 
 ---
 
@@ -298,4 +358,6 @@ If PFA is already running, one command line parameter is available:
 - Windows 11 shows these (classic) context-menu entries under **Show more options**.
 - **Single file type** relies on the Windows verb setting `MultiSelectModel=Single`. If an entry still appears with several items selected on your Windows version, leave the option unchecked.
 - Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme.
-- `background` entries do not appear in virtual folders such as This PC or Control Panel.
+- Background entries do not appear in virtual folders such as This PC or Control Panel.
+- **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
+- After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
