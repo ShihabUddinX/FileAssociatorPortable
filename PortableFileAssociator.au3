@@ -47,6 +47,18 @@ Global Const $version = "3.0.0.0"
 #Region Commandline
 Global $wndMSG, $wndMSG_msg = -1
 
+; multi-file launcher: started by Explorer for commands that use %%1 (see "Multi-file launcher" region)
+If $CmdLine[0] > 1 Then
+	If $CmdLine[1] = "multi_open" Then
+		_MultiOpen()
+		Exit
+	EndIf
+	If $CmdLine[1] = "bg_open" Then
+		_BgOpen()
+		Exit
+	EndIf
+EndIf
+
 $wndMSG = _WinAPI_RegisterWindowMessage("PFA_CustomWindowMessage")
 
 If _CreateMutex() <> 0 Then
@@ -76,7 +88,7 @@ Global $nTheme
 Global $aMutedLbl[4][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
 Global Const $aProfIconNames[4] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile"]
 Global $refreshnow, $rebuildonchange, $trayexit, $trayonclose
-Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
+Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $singleChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
 Global $iAssocIcon, $iAssocIconBrowse, $iAssocIconIndex, $iAssocIconPreview
 Global $tGUI, $icondisplay, $ftypelist, $ftypeAssocFilter, $defassoclist, $hideext, $copyhost, $hostoverride, $ftypeicon, $iconbrowse, $iconindex, $indexupdown, $savetypes, $donetypes
 Global $showNewMenu, $newMenuName, $useTemplate, $templateFile
@@ -609,7 +621,7 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlCreateLabel("Context-menu icon", 136, 171, 140, 18)
 	GUICtrlCreateLabel("Icon index", 458, 171, 70, 18)
 	GUICtrlCreateLabel("Command", 136, 226, 70, 18)
-	$aMutedLbl[2][0] = GUICtrlCreateLabel("Use %1 to pass the selected file, folder or drive.", 136, 284, 340, 16)
+	$aMutedLbl[2][0] = GUICtrlCreateLabel("%1 = one file, %%1 = all selected files, %V = current folder (background).", 136, 284, 400, 16)
 	$aMutedLbl[2][1] = 0x666666
 	GUICtrlSetFont(-1, 8, 400, 2)
 	GUICtrlSetColor(-1, 0x666666)
@@ -617,7 +629,9 @@ Func _InitAllGUIs($guimode = "")
 	$iSec = GUICtrlCreateInput("", 136, 86, 130, 23)
 	GUICtrlSetTip(-1, "Internal association name. Cannot include ',' or '*'.")
 	$iMode = GUICtrlCreateInput("", 286, 86, 235, 23)
-	GUICtrlSetTip(-1, "Target types: drives|files|folders|recycle|extensions (for example: txt|md).")
+	GUICtrlSetTip(-1, "Target types: drives|file|folder|background|recycle|extensions (for example: txt|md)." & @CRLF & _
+		"file = all files, folder = all folders (tick ""Single file type"" for single selection only)." & @CRLF & _
+		"background = right-click on empty space in a folder or on the desktop (use %V for the folder, e.g.  wt.exe -d ""%V"").")
 	$iTitle = GUICtrlCreateInput("", 136, 139, 385, 23)
 	GUICtrlSetTip(-1, "Text displayed in the Windows context menu.")
 	$iAssocIcon = GUICtrlCreateInput("", 136, 191, 250, 23)
@@ -627,8 +641,11 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetTip(-1, "Icon resource index. Usually 0 for ICO files.")
 	$iAssocIconPreview = GUICtrlCreateIcon("", "", 506, 187, 32, 32)
 	$iCommand = GUICtrlCreateInput("", 136, 248, 385, 23)
+	GUICtrlSetTip(-1, "%1 = selected file, folder or drive (one run per item)." & @CRLF & "%%1 = ALL selected items in one run, e.g.  FastCopy.exe %%1  ->  FastCopy.exe ""file1"" ""file2"" ""file3""")
 	; state and action buttons
 	$disChk = GUICtrlCreateCheckbox("Disabled", 286, 112, 90, 20)
+	$singleChk = GUICtrlCreateCheckbox("Single file type", 386, 112, 135, 20)
+	GUICtrlSetTip(-1, "Show this association only when ONE item is selected (hidden when several are selected)." & @CRLF & "Applies to file, folder and extension types (e.g. iso).")
 	GUICtrlSetTip(-1, "Disable this association without deleting its settings.")
 	$cBtn = GUICtrlCreateButton("Clear", 136, 24, 55, 27)
 	$sBtn = GUICtrlCreateButton("Save", 202, 24, 55, 27)
@@ -1030,6 +1047,7 @@ Func _RefreshAssocGUI()
 	GUICtrlSetData($iAssocIconIndex, "0")
 	GUICtrlSetImage($iAssocIconPreview, "", 0)
 	GUICtrlSetState($disChk, $GUI_UNCHECKED)
+	GUICtrlSetState($singleChk, $GUI_UNCHECKED)
 EndFunc
 
 Func _GetAssocInfo()
@@ -1050,6 +1068,11 @@ Func _GetAssocInfo()
 	GUICtrlSetData($iAssocIconIndex, $aIcon[1])
 	_UpdateAssocIconPreview()
 	GUICtrlSetState($disChk, $sDisabled)
+	If Number(IniRead($associni, $tSec, "single", 0)) = 1 Then
+		GUICtrlSetState($singleChk, $GUI_CHECKED)
+	Else
+		GUICtrlSetState($singleChk, $GUI_UNCHECKED)
+	EndIf
 EndFunc
 
 Func _SaveAssocSection()
@@ -1100,6 +1123,11 @@ Func _SaveAssocSection()
 		IniWrite($associni, $tSec, "icon", $sIcon)
 	EndIf
 	IniWrite($associni, $tSec, "disabled", $sDisabled) ; 1 = checked, 4 = unchecked
+	If BitAND(GUICtrlRead($singleChk), $GUI_CHECKED) Then
+		IniWrite($associni, $tSec, "single", "1") ; extension types: single selected file only
+	Else
+		IniDelete($associni, $tSec, "single")
+	EndIf
 	_RefreshAssocGUI()
 EndFunc
 
@@ -1179,7 +1207,11 @@ Func _BrowseCommand()
 	$path = FileOpenDialog("Browse for Command target...", $path, "All (*.*)", 1 + 3)
 	If Not @error Then
 		If StringInStr($path, ' ') Then $path = '"' & $path & '"'
-		$path &= ' "%1"'
+		If StringLower(StringStripWS(GUICtrlRead($iMode), 8)) = "background" Then
+			$path &= ' "%V"' ; background = current folder
+		Else
+			$path &= ' "%1"'
+		EndIf
 		GUICtrlSetData($iCommand, $path)
 	EndIf
 EndFunc
@@ -1279,7 +1311,7 @@ EndFunc
 Func _IsSpecialFtypeMode($sMode)
 	$sMode = StringLower(StringStripWS($sMode, 3))
 	Switch $sMode
-		Case "", "drive", "drives", "files", "folders", "recycle", "exe", "com"
+		Case "", "drive", "drives", "files", "file", "folders", "folder", "background", "recycle", "exe", "com"
 			Return True
 	EndSwitch
 	Return False
@@ -2083,7 +2115,7 @@ Func _WriteFtypeSettings()
 					Next
 				EndIf
 				; write default command if found
-				If $opencmd <> "" And $opencmd <> "none" Then RegWrite("HKCU\Software\Classes\" & $ftype & "\shell\open\command", "", "REG_SZ", $opencmd)
+				If $opencmd <> "" And $opencmd <> "none" Then RegWrite("HKCU\Software\Classes\" & $ftype & "\shell\open\command", "", "REG_SZ", _RegCommand($opencmd))
 			EndIf
 			; write icon
 			Local $failover = False
@@ -2192,7 +2224,7 @@ Func _DoSendToShortcuts($fAdd = True)
 EndFunc
 
 Func _FileAssociations($work)
-	Local $section, $mode, $title, $command, $j, $ftype, $exename, $icon, $verbKey, $targetClass
+	Local $section, $mode, $title, $command, $cmdRaw, $bSingle, $j, $ftype, $exename, $icon, $verbKey, $targetClass
 
 	Switch $work
 		Case "add" ; add context menu entries
@@ -2211,6 +2243,9 @@ Func _FileAssociations($work)
 					MsgBox(0, "Error", "Error reading INI section." & @CRLF & "Section = `" & $section[$i] & "`")
 					ContinueLoop
 				EndIf
+				$cmdRaw = $command ; plain command (used by background verbs)
+				$bSingle = (Number(IniRead($associni, $section[$i], "single", 0)) = 1) ; extension types: single file only
+				$command = _RegCommand($command) ; commands with %%1 get the multi-file launcher
 				For $j = 1 To $mode[0]
 					$verbKey = ""
 					Switch $mode[$j] ; write reg entries based on mode
@@ -2218,14 +2253,28 @@ Func _FileAssociations($work)
 							$verbKey = "HKCU\Software\Classes\Drive\shell\PortableFileAssoc_" & $section[$i]
 							RegWrite($verbKey, "", "REG_SZ", $title)
 							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
-						Case "files" ; add to all files
+						Case "file", "files" ; add to all files ("files" = old name of "file")
 							$verbKey = "HKCU\Software\Classes\*\shell\PortableFileAssoc_" & $section[$i]
 							RegWrite($verbKey, "", "REG_SZ", $title)
+							If $bSingle Then
+								RegWrite($verbKey, "MultiSelectModel", "REG_SZ", "Single") ; hidden when several items are selected
+							Else
+								RegDelete($verbKey, "MultiSelectModel")
+							EndIf
 							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
-						Case "folders" ; add to all folders
+						Case "folder", "folders" ; add to all folders ("folders" = old name of "folder")
 							$verbKey = "HKCU\Software\Classes\Directory\shell\PortableFileAssoc_" & $section[$i]
 							RegWrite($verbKey, "", "REG_SZ", $title)
+							If $bSingle Then
+								RegWrite($verbKey, "MultiSelectModel", "REG_SZ", "Single") ; hidden when several items are selected
+							Else
+								RegDelete($verbKey, "MultiSelectModel")
+							EndIf
 							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
+						Case "background" ; add to the empty area of folder windows and the desktop
+							$verbKey = "HKCU\Software\Classes\Directory\Background\shell\PortableFileAssoc_" & $section[$i]
+							RegWrite($verbKey, "", "REG_SZ", $title)
+							RegWrite($verbKey & "\command", "", "REG_SZ", _RegCommandBg($cmdRaw))
 						Case "recycle" ; add to recycle bin
 							$verbKey = "HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell\" & $title
 							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
@@ -2244,6 +2293,11 @@ Func _FileAssociations($work)
 							; write association data
 							$verbKey = "HKCU\Software\Classes\" & $targetClass & "\shell\PFA_" & $i & "_" & $j
 							RegWrite($verbKey, "", "REG_SZ", $title)
+							If $bSingle Then
+								RegWrite($verbKey, "MultiSelectModel", "REG_SZ", "Single") ; hidden when several files are selected
+							Else
+								RegDelete($verbKey, "MultiSelectModel")
+							EndIf
 							RegWrite($verbKey & "\command", "", "REG_SZ", $command)
 							; Only normal extensions are listed as configurable PFA file types.
 							If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" Then
@@ -2312,13 +2366,18 @@ Func _FileAssociations($work)
 							RegDelete("HKCU\Software\Classes\Drive\Shell\PortableFileAssoc_" & $section[$i])
 							If _RegKeyEmpty("HKCU\Software\Classes\Drive\Shell") Then RegDelete("HKCU\Software\Classes\Drive\Shell") ; if Shell key empty, delete it
 							If _RegKeyEmpty("HKCU\Software\Classes\Drive") Then RegDelete("HKCU\Software\Classes\Drive") ; if Drive key empty, delete it
-						Case "files" ; remove from all files
+						Case "files", "file" ; remove from all files
 							RegDelete("HKCU\Software\Classes\*\Shell\PortableFileAssoc_" & $section[$i])
 							If _RegKeyEmpty("HKCU\Software\Classes\*\Shell") Then RegDelete("HKCU\Software\Classes\*\Shell") ; if Shell key empty, delete it
 							If _RegKeyEmpty("HKCU\Software\Classes\*") Then RegDelete("HKCU\Software\Classes\*") ; if * key empty, delete it
-						Case "folders" ; remove from all folders
+						Case "folders", "folder" ; remove from all folders
 							RegDelete("HKCU\Software\Classes\Directory\Shell\PortableFileAssoc_" & $section[$i])
 							If _RegKeyEmpty("HKCU\Software\Classes\Directory\Shell") Then RegDelete("HKCU\Software\Classes\Directory\Shell") ; if Shell key empty, delete it
+							If _RegKeyEmpty("HKCU\Software\Classes\Directory") Then RegDelete("HKCU\Software\Classes\Directory") ; if Folder key empty, delete it
+						Case "background" ; remove from folder / desktop background
+							RegDelete("HKCU\Software\Classes\Directory\Background\shell\PortableFileAssoc_" & $section[$i])
+							If _RegKeyEmpty("HKCU\Software\Classes\Directory\Background\shell") Then RegDelete("HKCU\Software\Classes\Directory\Background\shell") ; if shell key empty, delete it
+							If _RegKeyEmpty("HKCU\Software\Classes\Directory\Background") Then RegDelete("HKCU\Software\Classes\Directory\Background") ; if Background key empty, delete it
 							If _RegKeyEmpty("HKCU\Software\Classes\Directory") Then RegDelete("HKCU\Software\Classes\Directory") ; if Folder key empty, delete it
 						Case "recycle" ; remove from recycle bin
 							RegDelete("HKCU\Software\Classes\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell\" & $title)
@@ -2387,6 +2446,204 @@ Func _Exit()
 	Exit
 EndFunc
 #EndRegion Main Functions
+
+#Region Multi-file launcher (%%1)
+;=======================================================================================
+; A command that contains %%1 receives ALL selected files in ONE run:
+;     "FastCopy.exe" %%1      ->      FastCopy.exe "file1" "file2" "file3"
+; Explorer starts one process per selected file, so for such commands the registry entry is a small
+; wrapper:  PFA.exe multi_open <hex command> "%1"
+; The wrapper processes pool their files (temp queue files); the first one starts the real command.
+; Files are passed in name order (same as Explorer's default sort).
+;=======================================================================================
+Func _RegCommand($command)
+	If Not StringInStr($command, "%%1") Then Return $command
+	Local $sSelf = '"' & @ScriptFullPath & '"'
+	If Not @Compiled Then $sSelf = '"' & @AutoItExe & '" ' & $sSelf
+	Return $sSelf & " multi_open " & StringTrimLeft(StringToBinary($command, 4), 2) & ' "%1"'
+EndFunc
+
+Func _MultiStamp() ; seconds counter, good enough to age out stale queue files
+	Return @YEAR * 31622400 + @YDAY * 86400 + @HOUR * 3600 + @MIN * 60 + @SEC
+EndFunc
+
+Func _MultiHash($s)
+	Local $h = 5381, $i
+	For $i = 1 To StringLen($s)
+		$h = Mod($h * 33 + Asc(StringMid($s, $i, 1)), 4294967291)
+	Next
+	Return Hex($h, 8)
+EndFunc
+
+Func _MultiCount($sBase)
+	Local $hS = FileFindFirstFile($sBase & "*.q"), $n = 0
+	If $hS = -1 Then Return 0
+	While 1
+		FileFindNextFile($hS)
+		If @error Then ExitLoop
+		$n += 1
+	WEnd
+	FileClose($hS)
+	Return $n
+EndFunc
+
+Func _MultiCollect($sBase) ; read + delete all queue files, return sorted paths: [0] = count
+	Local $aOut[64], $iN = 0, $hS, $hF, $sName, $sFile, $sData, $aLines, $i, $k, $lo, $hi, $mid, $r, $iNow = _MultiStamp()
+	Local $aEmpty[1] = [0]
+	$hS = FileFindFirstFile($sBase & "*.q")
+	If $hS = -1 Then Return $aEmpty
+	While 1
+		$sName = FileFindNextFile($hS)
+		If @error Then ExitLoop
+		$sFile = @TempDir & "\" & $sName
+		$hF = FileOpen($sFile, 128) ; UTF-8
+		$sData = ""
+		If $hF <> -1 Then
+			$sData = FileRead($hF)
+			FileClose($hF)
+		EndIf
+		FileDelete($sFile)
+		$aLines = StringSplit(StringStripCR($sData), @LF, 2)
+		If UBound($aLines) < 2 Then ContinueLoop
+		If Number($aLines[0]) < $iNow - 60 Then ContinueLoop ; stale file from an old run
+		For $i = 1 To UBound($aLines) - 1
+			If $aLines[$i] = "" Then ContinueLoop
+			If $iN >= UBound($aOut) Then ReDim $aOut[UBound($aOut) * 2]
+			; binary insertion = natural name order
+			$lo = 0
+			$hi = $iN - 1
+			While $lo <= $hi
+				$mid = Int(($lo + $hi) / 2)
+				$r = DllCall("shlwapi.dll", "int", "StrCmpLogicalW", "wstr", $aLines[$i], "wstr", $aOut[$mid])
+				If @error Then ExitLoop
+				If $r[0] < 0 Then
+					$hi = $mid - 1
+				Else
+					$lo = $mid + 1
+				EndIf
+			WEnd
+			For $k = $iN To $lo + 1 Step -1
+				$aOut[$k] = $aOut[$k - 1]
+			Next
+			$aOut[$lo] = $aLines[$i]
+			$iN += 1
+		Next
+	WEnd
+	FileClose($hS)
+	Local $aRes[$iN + 1]
+	$aRes[0] = $iN
+	For $i = 0 To $iN - 1
+		$aRes[$i + 1] = $aOut[$i]
+	Next
+	Return $aRes
+EndFunc
+
+Func _MultiRun($sTemplate, $aPaths)
+	; replace %%1 with "file1" "file2" ... (split into several runs if the command line would get too long)
+	Local $sWork = @WorkingDir, $i, $sList = "", $sItem, $iPos
+	$sTemplate = StringReplace($sTemplate, '"%%1"', "%%1") ; "%%1" and %%1 mean the same
+	$iPos = StringInStr($aPaths[1], "\", 0, -1)
+	If $iPos >= 3 And FileExists(StringLeft($aPaths[1], $iPos)) Then $sWork = StringLeft($aPaths[1], $iPos)
+	For $i = 1 To $aPaths[0]
+		$sItem = '"' & $aPaths[$i] & '"'
+		If $sList <> "" And StringLen($sTemplate) + StringLen($sList) + StringLen($sItem) > 30000 Then
+			Run(StringReplace($sTemplate, "%%1", $sList), $sWork)
+			$sList = ""
+		EndIf
+		If $sList <> "" Then $sList &= " "
+		$sList &= $sItem
+	Next
+	If $sList <> "" Then Run(StringReplace($sTemplate, "%%1", $sList), $sWork)
+EndFunc
+
+Func _MultiOpen()
+	; $CmdLine: [1] = "multi_open", [2] = hex encoded command template, [3...] = selected path(s)
+	Local $sTemplate = BinaryToString(Binary("0x" & $CmdLine[2]), 4)
+	If $sTemplate = "" Or Not StringInStr($sTemplate, "%%1") Then Return
+	Local $sKey = _MultiHash($CmdLine[2])
+	Local $sBase = @TempDir & "\PFA_multi_" & $sKey & "_"
+	Local $sMine = $sBase & @AutoItPID
+	Local $i, $sList = "", $hFile, $aErr, $iLast, $iCount, $hQuiet, $hTotal, $aPaths
+
+	For $i = 3 To $CmdLine[0]
+		$sList &= $CmdLine[$i] & @LF
+	Next
+	If $sList = "" Then Return
+
+	; publish this process' path(s)
+	$hFile = FileOpen($sMine & ".tmp", 2 + 128)
+	If $hFile = -1 Then Return
+	FileWrite($hFile, _MultiStamp() & @LF & $sList)
+	FileClose($hFile)
+	FileMove($sMine & ".tmp", $sMine & ".q", 1)
+
+	; only the first process (mutex owner) collects the files and starts the command
+	DllCall("kernel32.dll", "handle", "CreateMutexW", "ptr", 0, "bool", False, "wstr", "PFA_multi_" & $sKey)
+	$aErr = DllCall("kernel32.dll", "dword", "GetLastError")
+	If Not @error And $aErr[0] = 183 Then Return ; ERROR_ALREADY_EXISTS: another process is collecting
+
+	While 1
+		; wait until no new file has been published for 700 ms (max 30 s)
+		$iLast = -1
+		$hQuiet = TimerInit()
+		$hTotal = TimerInit()
+		While TimerDiff($hTotal) < 30000
+			$iCount = _MultiCount($sBase)
+			If $iCount <> $iLast Then
+				$iLast = $iCount
+				$hQuiet = TimerInit()
+			ElseIf TimerDiff($hQuiet) >= 700 Then
+				ExitLoop
+			EndIf
+			Sleep(50)
+		WEnd
+		$aPaths = _MultiCollect($sBase)
+		If $aPaths[0] = 0 Then ExitLoop
+		_MultiRun($sTemplate, $aPaths)
+	WEnd
+EndFunc
+#EndRegion Multi-file launcher (%%1)
+
+#Region Background launcher (%V)
+;=======================================================================================
+; "background" = empty space of a folder window / the desktop (like "Open Terminal here").
+; The command gets the current folder through %V, e.g.   "wt.exe" -d "%V"   or   cmd.exe /k cd /d "%V"
+; Registry entry:  PFA.exe bg_open <hex command> "%V."   (the added dot keeps a drive root like C:\ from
+; ending in \" which most programs read as an escaped quote). The launcher removes the dot again,
+; starts the command in that folder and passes the path safely quoted (C:\ becomes "C:\\").
+;=======================================================================================
+Func _RegCommandBg($command)
+	Local $sSelf = '"' & @ScriptFullPath & '"'
+	If Not @Compiled Then $sSelf = '"' & @AutoItExe & '" ' & $sSelf
+	Return $sSelf & " bg_open " & StringTrimLeft(StringToBinary($command, 4), 2) & ' "%V."'
+EndFunc
+
+Func _BgOpen()
+	; $CmdLine: [1] = "bg_open", [2] = hex encoded command template, [3...] = folder path + "."
+	Local $sTemplate = BinaryToString(Binary("0x" & $CmdLine[2]), 4)
+	Local $sPath = "", $sWork = @WorkingDir, $sQ, $i
+	If $sTemplate = "" Then Return
+	For $i = 3 To $CmdLine[0] ; join, in case the path was split at spaces
+		If $sPath <> "" Then $sPath &= " "
+		$sPath &= $CmdLine[$i]
+	Next
+	$sPath = StringReplace($sPath, '"', "")
+	If StringRight($sPath, 1) = "." Then $sPath = StringTrimRight($sPath, 1) ; remove the protective dot
+	If $sPath <> "" And FileExists($sPath) Then $sWork = $sPath
+	If $sPath = "" Then $sPath = $sWork
+	; path as one quoted argument; a trailing \ is doubled so it cannot escape the closing quote
+	$sQ = $sPath
+	If StringRight($sQ, 1) = "\" Then $sQ &= "\"
+	$sQ = '"' & $sQ & '"'
+	; %V, %1 and %%1 all mean "this folder", with or without quotes
+	$sTemplate = StringReplace($sTemplate, '"%V"', "%V")
+	$sTemplate = StringReplace($sTemplate, '"%%1"', "%V")
+	$sTemplate = StringReplace($sTemplate, '"%1"', "%V")
+	$sTemplate = StringReplace($sTemplate, "%%1", "%V")
+	$sTemplate = StringReplace($sTemplate, "%1", "%V")
+	Run(StringReplace($sTemplate, "%V", $sQ), $sWork)
+EndFunc
+#EndRegion Background launcher (%V)
 
 #Region Theme (light / dark)
 ;=======================================================================================
