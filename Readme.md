@@ -358,6 +358,5 @@ If PFA is already running, one command line parameter is available:
 - Windows 11 shows these (classic) context-menu entries under **Show more options**.
 - **Single file type** relies on the Windows verb setting `MultiSelectModel=Single`. If an entry still appears with several items selected on your Windows version, leave the option unchecked.
 - Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme.
-- Background entries do not appear in virtual folders such as This PC or Control Panel.
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
 - After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
