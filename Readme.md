@@ -1,5 +1,9 @@
 # PortableFileAssociator
 
+**Version 3.0.0.1**
+
+**Owner / Trademark:** ShihabUddinX · Original work by Erik Pilsits
+
 Take your file associations with you. Open local files with your portable applications.
 
 ## Contents
@@ -29,6 +33,8 @@ Take your file associations with you. Open local files with your portable applic
 | **Create System Restore Point** | Creates a Windows restore point (see [System Restore](#system-restore)). |
 | **Profile** | Profile selection and profile buttons (see [Profile](#profile)). |
 | **Theme** | System / Light / Dark (see [Theme](#theme)). |
+| **Version** | The version number (e.g. `v3.0.0.1`) is shown at the bottom left of the main window. It is also the file version of `PortableFileAssociator.exe`. |
+| **Owner** | ShihabUddinX (owner and trademark). Also written in the file properties of `PortableFileAssociator.exe` (Company, Legal copyright, Legal trademarks). Original work by Erik Pilsits. |
 
 ---
 
@@ -303,6 +309,7 @@ Left-click the tray icon to show the main window. Right-click it to access these
 |---|---|
 | **Rebuild icon cache on change** | If activated, the icon cache is rebuilt after associations are added or removed, or after icon changes are applied. Disabled by default; enable it if filetypes show incorrect icons. *(NT/2000/XP only)* |
 | **Refresh icons now** | Sends the `SHChangeNotify()` system message. If the option above is active, it also rebuilds the icon cache. On Windows Vista and newer this only sends the message. |
+| **Add associations on start** | If activated, the associations of the **last active profile** are added automatically when PFA is started without command line arguments (the GUI starts minimized to the tray, like `add_gui`). Saved in `Data\settings\profile.ini` as `[profile] commandline=add_gui` (activated) or `commandline=` (not activated). Starting PFA with command line arguments (e.g. `PortableFileAssociator.exe add_gui`) ignores this setting. |
 | **Remove associations on close** | If activated, the file associations are removed when the GUI is closed. |
 | **Exit** | Close PFA. |
 
@@ -334,14 +341,23 @@ PortableFileAssociator.exe <param1> <param2>
 | `add_gui` | Adds the file associations and starts the GUI minimized to the tray. |
 | `remove` | Removes the file associations, then exits. |
 
-`<param2>` is optional and must specify the profile to activate and use. It is ignored if `<param1>` is `remove`.
+`<param2>` is optional and must specify the profile to activate and use. It is ignored if `<param1>` is `remove`. If it is left out, the **last active profile** is used (the profile selected the last time PFA was used, stored as `active` in `Data\Settings\profile.ini`).
 
-The same options can be set in `Data\Settings\profile.ini`. This is useful if your launcher cannot pass command line arguments to program shortcuts. Individual arguments should not contain spaces:
+```
+PortableFileAssociator.exe add_gui                  (last active profile)
+PortableFileAssociator.exe add_gui DefaultProfile   (this profile)
+```
+
+The same options can be set in `Data\Settings\profile.ini`. This is useful if your launcher cannot pass command line arguments to program shortcuts. The INI `commandline` is used **only when PFA is started without command line arguments**. Individual arguments should not contain spaces:
 
 ```ini
 [profile]
-commandline=add_gui DefaultProfile
+commandline=add_gui
 ```
+
+- With `commandline=add_gui` no profile name is needed: the last active profile is added.
+- A profile name can still be written after `add_gui` (e.g. `commandline=add_gui DefaultProfile`) to always use that profile.
+- The tray menu item **Add associations on start** (see [Tray menu](#tray-menu)) sets this line for you: ticked = `commandline=add_gui`, unticked = `commandline=` (empty).
 
 If PFA is already running, one command line parameter is available:
 
@@ -358,5 +374,13 @@ If PFA is already running, one command line parameter is available:
 - Windows 11 shows these (classic) context-menu entries under **Show more options**.
 - **Single file type** relies on the Windows verb setting `MultiSelectModel=Single`. If an entry still appears with several items selected on your Windows version, leave the option unchecked.
 - Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme.
+- Background entries do not appear in virtual folders such as This PC or Control Panel.
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
 - After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
+
+---
+
+## Owner / Trademark
+
+PortableFileAssociator is owned by **ShihabUddinX**. ShihabUddinX is a trademark of ShihabUddinX.
+Original work by Erik Pilsits.

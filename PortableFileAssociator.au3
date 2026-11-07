@@ -1,4 +1,4 @@
-﻿#NoTrayIcon
+#NoTrayIcon
 #Region ;**** Directives created by AutoIt3Wrapper_GUI ****
 #AutoIt3Wrapper_icon=..\..\App\AppInfo\appicon.ico
 #AutoIt3Wrapper_outfile=..\..\PortableFileAssociator.exe
@@ -8,8 +8,11 @@
 #AutoIt3Wrapper_Res_Description=PortableFileAssociator
 #AutoIt3Wrapper_Res_ProductName=PortableFileAssociator
 #AutoIt3Wrapper_Res_CompanyName=ShihabUddinX
-#AutoIt3Wrapper_Res_Fileversion=3.0.0.0
-#AutoIt3Wrapper_Res_LegalCopyright=by Erik Pilsits
+#AutoIt3Wrapper_Res_Fileversion=3.0.0.1
+#AutoIt3Wrapper_Res_ProductVersion=3.0.0.1
+#AutoIt3Wrapper_Res_LegalCopyright=Copyright (c) ShihabUddinX. Original work by Erik Pilsits
+#AutoIt3Wrapper_Res_LegalTrademarks=ShihabUddinX
+#AutoIt3Wrapper_Res_Field=Owner|ShihabUddinX
 #AutoIt3Wrapper_Res_Language=1033
 #AutoIt3Wrapper_AU3Check_Parameters=-q -d -w 1 -w 2 -w 3 -w 4 -w 5 -w 6
 #AutoIt3Wrapper_Run_Obfuscator=y
@@ -42,19 +45,19 @@ Opt("TrayOnEventMode", 1) ; enable tray events
 Opt("MustDeclareVars", 1) ; must declare variables before use
 Opt("WinTitleMatchMode", 3) ; exact title match
 
-Global Const $version = "3.0.0.0"
+Global Const $version = "3.0.0.1"
 
 #Region Commandline
 Global $wndMSG, $wndMSG_msg = -1
 
 ; multi-file launcher: started by Explorer for commands that use %%1 (see "Multi-file launcher" region)
 If $CmdLine[0] > 1 Then
-	If $CmdLine[1] = "multi_open" Then
-		_MultiOpen()
+	If $CmdLine[1] = "multi_open" Or $CmdLine[1] = "multi_open_admin" Then
+		_MultiOpen($CmdLine[1] = "multi_open_admin")
 		Exit
 	EndIf
-	If $CmdLine[1] = "bg_open" Then
-		_BgOpen()
+	If $CmdLine[1] = "bg_open" Or $CmdLine[1] = "bg_open_admin" Then
+		_BgOpen($CmdLine[1] = "bg_open_admin")
 		Exit
 	EndIf
 EndIf
@@ -87,8 +90,8 @@ Global $iBgCol = 0xF0F0F0, $iCtrlCol = 0xFFFFFF, $iTextCol = 0x000000, $iLightBg
 Global $nTheme
 Global $aMutedLbl[4][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
 Global Const $aProfIconNames[4] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile"]
-Global $refreshnow, $rebuildonchange, $trayexit, $trayonclose
-Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $singleChk, $chkFiles, $chkFolders, $chkDrives, $chkRecycle, $chkBackground, $iDriveCmd, $bBtnDrive, $iFolderCmd, $bBtnFolder, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
+Global $refreshnow, $rebuildonchange, $trayexit, $trayonclose, $trayaddonstart
+Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $singleChk, $chkFiles, $chkFolders, $chkDrives, $chkRecycle, $chkBackground, $iDriveCmd, $bBtnDrive, $iFolderCmd, $bBtnFolder, $runAdminChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
 Global $iAssocIcon, $iAssocIconBrowse, $iAssocIconIndex, $iAssocIconPreview
 Global $tGUI, $icondisplay, $ftypelist, $ftypeAssocFilter, $defassoclist, $hideext, $copyhost, $hostoverride, $ftypeicon, $iconbrowse, $iconindex, $indexupdown, $savetypes, $donetypes
 Global $showNewMenu, $newMenuName, $useTemplate, $templateFile
@@ -581,6 +584,7 @@ Func _InitAllGUIs($guimode = "")
 	$rebuildonchange = TrayCreateItem("Rebuild icon cache on change")
 	$refreshnow = TrayCreateItem("Refresh icons now")
 	TrayCreateItem("")
+	$trayaddonstart = TrayCreateItem("Add associations on start")
 	$trayonclose = TrayCreateItem("Remove associations on close")
 	TrayCreateItem("")
 	TrayCreateItem("")
@@ -588,6 +592,7 @@ Func _InitAllGUIs($guimode = "")
 
 	; tray events
 	TraySetOnEvent($TRAY_EVENT_PRIMARYDOWN, "_RestoreMainGUI")
+	TrayItemSetOnEvent($trayaddonstart, "_ToggleAddOnStart")
 	TrayItemSetOnEvent($trayonclose, "_ToggleOnClose")
 	TrayItemSetOnEvent($rebuildonchange, "_ToggleRebuildOnChange")
 	TrayItemSetOnEvent($refreshnow, "_RefreshNow")
@@ -611,9 +616,9 @@ Func _InitAllGUIs($guimode = "")
 	_ActionButtonsState() ; action buttons
 #EndRegion ===== main GUI & tray
 #Region	===== association GUI
-	$aGUI = GUICreate("Edit Associations", 550, 470, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	$aGUI = GUICreate("Edit Associations", 550, 490, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
 	; association list and editor labels
-	$lSec = GUICtrlCreateList("", 10, 34, 108, 410, BitOR($LBS_SORT, $WS_HSCROLL, $WS_VSCROLL))
+	$lSec = GUICtrlCreateList("", 10, 34, 108, 430, BitOR($LBS_SORT, $WS_HSCROLL, $WS_VSCROLL))
 	GUICtrlCreateLabel("Associations", 10, 12, 100, 18)
 	GUICtrlCreateLabel("Association Name", 136, 66, 110, 18)
 	GUICtrlCreateLabel("Associated Types (extensions)", 286, 66, 235, 18)
@@ -622,8 +627,8 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlCreateLabel("Context-menu icon", 136, 244, 140, 18)
 	GUICtrlCreateLabel("Icon index", 458, 244, 70, 18)
 	GUICtrlCreateLabel("Command", 136, 299, 70, 18)
-	GUICtrlCreateLabel("Folder Command (optional)", 136, 349, 200, 18)
-	GUICtrlCreateLabel("Drive Command (optional)", 136, 399, 200, 18)
+	GUICtrlCreateLabel("Drive Command", 136, 349, 110, 18)
+	GUICtrlCreateLabel("Folder Command", 136, 399, 110, 18)
 	$aMutedLbl[2][0] = GUICtrlCreateLabel("%1 = one file, %%1 = all selected files, %V = current folder (background).", 136, 448, 400, 16)
 	$aMutedLbl[2][1] = 0x666666
 	GUICtrlSetFont(-1, 8, 400, 2)
@@ -661,12 +666,14 @@ Func _InitAllGUIs($guimode = "")
 	$iCommand = GUICtrlCreateInput("", 136, 319, 385, 23)
 	GUICtrlSetTip(-1, "%1 = selected file, folder or drive (one run per item)." & @CRLF & "%%1 = ALL selected items in one run, e.g.  FastCopy.exe %%1  ->  FastCopy.exe ""file1"" ""file2"" ""file3""" & @CRLF & "%V = current folder (background).")
 	$bBtn = GUICtrlCreateButton("...", 526, 319, 20, 23)
-	$iFolderCmd = GUICtrlCreateInput("", 136, 369, 385, 23)
-	GUICtrlSetTip(-1, "Optional command used for folders (only available when ""Folders"" is ticked)." & @CRLF & "If empty, the Command is used for folders too.")
-	$bBtnFolder = GUICtrlCreateButton("...", 526, 369, 20, 23)
-	$iDriveCmd = GUICtrlCreateInput("", 136, 419, 385, 23)
-	GUICtrlSetTip(-1, "Optional command used for drives (only available when ""Drives"" is ticked)." & @CRLF & "Use %1 or %V WITHOUT quotes: a drive path like E:\ ends with a backslash." & @CRLF & "Example:  E:\PortableApps\Terminal\Terminal.exe -d %1" & @CRLF & "If empty, the Command is used for drives too.")
-	$bBtnDrive = GUICtrlCreateButton("...", 526, 419, 20, 23)
+	$iDriveCmd = GUICtrlCreateInput("", 136, 369, 385, 23)
+	GUICtrlSetTip(-1, "Command used for drives (only available when ""Drives"" is ticked)." & @CRLF & "Use %1 or %V WITHOUT quotes: a drive path like E:\ ends with a backslash." & @CRLF & "Example:  E:\PortableApps\Terminal\Terminal.exe -d %1" & @CRLF & "If empty, the Command is used for drives too.")
+	$bBtnDrive = GUICtrlCreateButton("...", 526, 369, 20, 23)
+	$iFolderCmd = GUICtrlCreateInput("", 136, 419, 385, 23)
+	GUICtrlSetTip(-1, "Command used for folders (only available when ""Folders"" is ticked)." & @CRLF & "Use %1 for the folder, e.g.  FastCopy.exe ""%1""   or  %%1 for all selected folders in one run." & @CRLF & "If empty, the Command is used for folders too (when the association also has other targets).")
+	$bBtnFolder = GUICtrlCreateButton("...", 526, 419, 20, 23)
+	$runAdminChk = GUICtrlCreateCheckbox("Run as Admin", 376, 164, 145, 20)
+	GUICtrlSetTip(-1, "Run the command with administrator rights (UAC prompt)." & @CRLF & "Use this for programs that need admin access. Not used for the Recycle Bin.")
 	; action buttons
 	$cBtn = GUICtrlCreateButton("Clear", 136, 24, 55, 27)
 	$sBtn = GUICtrlCreateButton("Save", 202, 24, 55, 27)
@@ -683,8 +690,8 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($dBtn, "_aGUIClose") ; done button
 	GUICtrlSetOnEvent($hBtn, "_AssocHelp") ; help button
 	GUICtrlSetOnEvent($bBtn, "_BrowseCommand") ; browse command target
-	GUICtrlSetOnEvent($bBtnFolder, "_BrowseFolderCommand") ; browse folder command target
-	GUICtrlSetOnEvent($bBtnDrive, "_BrowseDriveCommand") ; browse drive command target
+	GUICtrlSetOnEvent($bBtnDrive, "_BrowseDriveCommand")
+	GUICtrlSetOnEvent($bBtnFolder, "_BrowseFolderCommand") ; browse drive command target
 	GUICtrlSetOnEvent($iAssocIconBrowse, "_BrowseAssocIcon") ; browse context-menu icon
 	GUICtrlSetOnEvent($chkFiles, "_AssocUpdateControls") ; target tick boxes enable / disable inputs
 	GUICtrlSetOnEvent($chkFolders, "_AssocUpdateControls")
@@ -830,6 +837,7 @@ Func _SetProfile($profile = "")
 		IniWrite($associni, "Default", "disabled", $GUI_UNCHECKED)
 	EndIf
 	_MigrateAssocINI() ; older INI: drives / files / folders / recycle / background moved from "mode" to tick boxes
+	_MigrateFolderCmd() ; older INI: folders-only command moved to its own Folder Command
 	If Not FileExists($stateini) Then
 		IniWrite($stateini, "state", "state", "0")
 		IniWrite($stateini, "state", "version", $version)
@@ -937,6 +945,11 @@ EndFunc
 
 Func _SetTrayStatus()
 		; tray status
+		If _AddOnStartEnabled() Then
+			TrayItemSetState($trayaddonstart, $TRAY_CHECKED)
+		Else
+			TrayItemSetState($trayaddonstart, $TRAY_UNCHECKED)
+		EndIf
 		If $onclose = 1 Then
 			TrayItemSetState($trayonclose, $TRAY_CHECKED)
 		Else
@@ -974,6 +987,24 @@ Func _ActionButtonsState()
 		GUICtrlSetState($nRename, $GUI_DISABLE)
 		GUICtrlSetState($nRemove, $GUI_DISABLE)
 		_ProfileIconsSet(False)
+	EndIf
+EndFunc
+
+Func _AddOnStartEnabled()
+	; "Add associations on start" is on when profile.ini [profile] commandline starts with add_gui
+	Local $aCmd = StringSplit(StringStripWS(IniRead($profileini, "profile", "commandline", ""), 3), " ")
+	Return ($aCmd[1] = "add_gui")
+EndFunc
+
+Func _ToggleAddOnStart()
+	; saved in Data\settings\profile.ini:  commandline=add_gui  (on)  /  commandline=  (off)
+	; add_gui uses the last active profile ([profile] active), no profile name needed
+	If _AddOnStartEnabled() Then
+		IniWrite($profileini, "profile", "commandline", "")
+		TrayItemSetState($trayaddonstart, $TRAY_UNCHECKED)
+	Else
+		IniWrite($profileini, "profile", "commandline", "add_gui")
+		TrayItemSetState($trayaddonstart, $TRAY_CHECKED)
 	EndIf
 EndFunc
 
@@ -1072,8 +1103,8 @@ Func _RefreshAssocGUI()
 	GUICtrlSetData($iMode, "")
 	GUICtrlSetData($iTitle, "")
 	GUICtrlSetData($iCommand, "")
-	GUICtrlSetData($iFolderCmd, "")
 	GUICtrlSetData($iDriveCmd, "")
+	GUICtrlSetData($iFolderCmd, "")
 	GUICtrlSetData($iAssocIcon, "")
 	GUICtrlSetData($iAssocIconIndex, "0")
 	GUICtrlSetImage($iAssocIconPreview, "", 0)
@@ -1084,6 +1115,7 @@ Func _RefreshAssocGUI()
 	GUICtrlSetState($chkDrives, $GUI_UNCHECKED)
 	GUICtrlSetState($chkRecycle, $GUI_UNCHECKED)
 	GUICtrlSetState($chkBackground, $GUI_UNCHECKED)
+	GUICtrlSetState($runAdminChk, $GUI_UNCHECKED)
 	_AssocUpdateControls()
 EndFunc
 
@@ -1096,20 +1128,20 @@ Func _GetAssocInfo()
 	$tCommand = ""
 	$sRaw = IniRead($associni, $tSec, "command", "")
 	If $sRaw <> "" Then $tCommand = _GetFullCommand($sRaw)
-	$tFolder = ""
-	$sRaw = IniRead($associni, $tSec, "foldercommand", "")
-	If $sRaw <> "" Then $tFolder = _GetFullCommand($sRaw)
 	$tDrive = ""
 	$sRaw = IniRead($associni, $tSec, "drivecommand", "")
 	If $sRaw <> "" Then $tDrive = _GetFullCommand($sRaw)
+	$tFolder = ""
+	$sRaw = IniRead($associni, $tSec, "foldercommand", "")
+	If $sRaw <> "" Then $tFolder = _GetFullCommand($sRaw)
 	$sIcon = IniRead($associni, $tSec, "icon", "")
 	$sDisabled = Number(IniRead($associni, $tSec, "disabled", $GUI_UNCHECKED)) ; 4 = unchecked
 	GUICtrlSetData($iSec, $tSec) ; set control data
 	GUICtrlSetData($iMode, $tMode)
 	GUICtrlSetData($iTitle, $tTitle)
 	GUICtrlSetData($iCommand, $tCommand)
-	GUICtrlSetData($iFolderCmd, $tFolder)
 	GUICtrlSetData($iDriveCmd, $tDrive)
+	GUICtrlSetData($iFolderCmd, $tFolder)
 	$aIcon = _ParseAssocIcon($sIcon)
 	GUICtrlSetData($iAssocIcon, $aIcon[0])
 	GUICtrlSetData($iAssocIconIndex, $aIcon[1])
@@ -1121,12 +1153,13 @@ Func _GetAssocInfo()
 	_AssocSetChk($chkDrives, _AssocFlag($tSec, "drives"))
 	_AssocSetChk($chkRecycle, _AssocFlag($tSec, "recycle"))
 	_AssocSetChk($chkBackground, _AssocFlag($tSec, "background"))
+	_AssocSetChk($runAdminChk, _AssocFlag($tSec, "admin"))
 	_AssocUpdateControls()
 EndFunc
 
 Func _SaveAssocSection()
 	Local $tSec, $tMode, $tTitle, $tCommand, $tDrive, $tFolder, $sDisabled, $atCommand[1], $sIcon, $i, $aChk
-	Local $bFiles, $bFolders, $bDrives, $bRecycle, $bBackground, $bMain, $bNeedCmd
+	Local $bFiles, $bFolders, $bDrives, $bRecycle, $bBackground, $bOther, $bDriveOnly, $bUsesMain
 
 	$tSec = StringStripWS(GUICtrlRead($iSec), 8) ; get section to save, no spaces
 	If $tSec = "" Then
@@ -1155,27 +1188,32 @@ Func _SaveAssocSection()
 				Return
 		EndSwitch
 	Next
-	If Not ($bFiles Or $bFolders Or $bDrives Or $bRecycle Or $bBackground Or $tMode <> "") Then
+	$bUsesMain = ($bFiles Or $bRecycle Or $bBackground Or $tMode <> "") ; targets that use the main Command
+	If Not $bUsesMain And Not $bFolders And Not $bDrives Then
 		MsgBox(0 + 48, "Error", "Select at least one target: enter file extensions or tick Files, Folders, Drives, Recycle Bin or Background.", 0, $aGUI)
 		Return
 	EndIf
 
-	; Folder Command and Drive Command are optional: when empty, folders / drives use the Command
-	$tCommand = StringStripWS(GUICtrlRead($iCommand), 3)
-	$tFolder = StringStripWS(GUICtrlRead($iFolderCmd), 3)
-	$tDrive = StringStripWS(GUICtrlRead($iDriveCmd), 3)
-	If Not $bFolders Then $tFolder = ""
+	$tCommand = GUICtrlRead($iCommand)
+	$tDrive = GUICtrlRead($iDriveCmd)
+	$tFolder = GUICtrlRead($iFolderCmd)
 	If Not $bDrives Then $tDrive = ""
-	$bMain = ($bFiles Or $bRecycle Or $bBackground Or $tMode <> "") ; targets that always use the Command
-	$bNeedCmd = ($bMain Or ($bFolders And $tFolder = "") Or ($bDrives And $tDrive = ""))
-	If $bNeedCmd Then
-		If $tCommand = "" Then
-			MsgBox(0 + 48, "Error", "Command cannot be blank." & @CRLF & _
-					"It is used by every target that has no Folder Command / Drive Command of its own.", 0, $aGUI)
+	If Not $bFolders Then $tFolder = ""
+	If StringStripWS($tDrive, 8) = "" Then $tDrive = ""
+	If StringStripWS($tFolder, 8) = "" Then $tFolder = ""
+	If Not $bUsesMain Then
+		$tCommand = "" ; only folders / drives: they use their own commands
+		If $bDrives And $tDrive = "" Then
+			MsgBox(0 + 48, "Error", "Drive Command cannot be blank when the association is only for drives (and folders).", 0, $aGUI)
 			Return
 		EndIf
-	Else
-		$tCommand = "" ; not used: folders / drives have their own commands
+		If $bFolders And $tFolder = "" Then
+			MsgBox(0 + 48, "Error", "Folder Command cannot be blank when the association is only for folders (and drives).", 0, $aGUI)
+			Return
+		EndIf
+	ElseIf StringStripWS($tCommand, 8) = "" Then
+		MsgBox(0 + 48, "Error", "Command cannot be blank.", 0, $aGUI)
+		Return
 	EndIf
 
 	IniReadSection($associni, $tSec) ; check if section exists and warn
@@ -1195,17 +1233,17 @@ Func _SaveAssocSection()
 			Return
 		EndIf
 	EndIf
-	If $tFolder <> "" Then
-		$atCommand = _CommandSplit($tFolder)
-		If StringInStr($atCommand[0], "%") Then
-			MsgBox(0 + 48, "Error", "Folder Command cannot use environment variables.", 0, $aGUI)
-			Return
-		EndIf
-	EndIf
 	If $tDrive <> "" Then
 		$atCommand = _CommandSplit($tDrive)
 		If StringInStr($atCommand[0], "%") Then
 			MsgBox(0 + 48, "Error", "Drive Command cannot use environment variables.", 0, $aGUI)
+			Return
+		EndIf
+	EndIf
+	If $tFolder <> "" Then
+		$atCommand = _CommandSplit($tFolder)
+		If StringInStr($atCommand[0], "%") Then
+			MsgBox(0 + 48, "Error", "Folder Command cannot use environment variables.", 0, $aGUI)
 			Return
 		EndIf
 	EndIf
@@ -1222,15 +1260,15 @@ Func _SaveAssocSection()
 	Else
 		IniWrite($associni, $tSec, "command", "'" & _GetRelCommand($tCommand) & "'")
 	EndIf
-	If $tFolder = "" Then
-		IniDelete($associni, $tSec, "foldercommand")
-	Else
-		IniWrite($associni, $tSec, "foldercommand", "'" & _GetRelCommand($tFolder) & "'")
-	EndIf
 	If $tDrive = "" Then
 		IniDelete($associni, $tSec, "drivecommand")
 	Else
 		IniWrite($associni, $tSec, "drivecommand", "'" & _GetRelCommand($tDrive) & "'")
+	EndIf
+	If $tFolder = "" Then
+		IniDelete($associni, $tSec, "foldercommand")
+	Else
+		IniWrite($associni, $tSec, "foldercommand", "'" & _GetRelCommand($tFolder) & "'")
 	EndIf
 	_AssocWriteFlag($tSec, "files", $bFiles)
 	_AssocWriteFlag($tSec, "folders", $bFolders)
@@ -1244,7 +1282,8 @@ Func _SaveAssocSection()
 		IniWrite($associni, $tSec, "icon", $sIcon)
 	EndIf
 	IniWrite($associni, $tSec, "disabled", $sDisabled) ; 1 = checked, 4 = unchecked
-	_AssocWriteFlag($tSec, "single", _IsChk($singleChk)) ; single selected item only
+	_AssocWriteFlag($tSec, "single", _IsChk($singleChk))
+	_AssocWriteFlag($tSec, "admin", _IsChk($runAdminChk)) ; run as administrator ; single selected item only
 	_RefreshAssocGUI()
 EndFunc
 
@@ -1320,12 +1359,12 @@ Func _BrowseCommand()
 	_BrowseCommandFor($iCommand, False)
 EndFunc
 
-Func _BrowseFolderCommand()
-	_BrowseCommandFor($iFolderCmd, False)
-EndFunc
-
 Func _BrowseDriveCommand()
 	_BrowseCommandFor($iDriveCmd, True)
+EndFunc
+
+Func _BrowseFolderCommand()
+	_BrowseCommandFor($iFolderCmd, False)
 EndFunc
 
 Func _BrowseCommandFor($idInput, $bDrive)
@@ -1631,8 +1670,8 @@ Func _MY_WM_COMMAND($hWnd, $Msg, $wParam, $lParam)
 				EndIf
 			ElseIf $ctrlid = $iAssocIcon Or $ctrlid = $iAssocIconIndex Then
 				_UpdateAssocIconPreview()
-			ElseIf $ctrlid = $iMode Or $ctrlid = $iFolderCmd Or $ctrlid = $iDriveCmd Then
-				_AssocUpdateControls() ; extensions / Folder / Drive Command typed: update which boxes are needed
+			ElseIf $ctrlid = $iMode Then
+				_AssocUpdateControls() ; extensions typed / removed: update Command / Drive Command
 			EndIf
 		EndIf
 	EndIf
@@ -2359,8 +2398,8 @@ Func _DoSendToShortcuts($fAdd = True)
 EndFunc
 
 Func _FileAssociations($work)
-	Local $section, $mode, $title, $cmdRaw, $cmdFolder, $cmdDrive, $command, $bSingle, $j, $icon, $verbKey, $targetClass, $sRaw, $sBase
-	Local $bFiles, $bFolders, $bDrives, $bRecycle, $bBackground, $bExt, $bNeedMain
+	Local $section, $mode, $title, $cmdRaw, $cmdDrive, $command, $bSingle, $j, $icon, $verbKey, $targetClass, $sRaw, $sBase
+	Local $bFiles, $bFolders, $bDrives, $bRecycle, $bBackground, $bExt, $bNeedMain, $cmdFolder, $bAdmin
 
 	Switch $work
 		Case "add" ; add context menu entries
@@ -2376,14 +2415,14 @@ Func _FileAssociations($work)
 				$cmdRaw = ""
 				$sRaw = IniRead($associni, $section[$i], "command", "")
 				If $sRaw <> "" Then $cmdRaw = _GetFullCommand($sRaw) ; resolve relative path
-				$cmdFolder = ""
-				$sRaw = IniRead($associni, $section[$i], "foldercommand", "")
-				If $sRaw <> "" Then $cmdFolder = _GetFullCommand($sRaw)
-				If $cmdFolder = "" Then $cmdFolder = $cmdRaw ; folders use the Command when there is no Folder Command
 				$cmdDrive = ""
 				$sRaw = IniRead($associni, $section[$i], "drivecommand", "")
 				If $sRaw <> "" Then $cmdDrive = _GetFullCommand($sRaw)
 				If $cmdDrive = "" Then $cmdDrive = $cmdRaw ; drives use the Command when there is no Drive Command
+				$cmdFolder = ""
+				$sRaw = IniRead($associni, $section[$i], "foldercommand", "")
+				If $sRaw <> "" Then $cmdFolder = _GetFullCommand($sRaw)
+				If $cmdFolder = "" Then $cmdFolder = $cmdRaw ; folders use the Command when there is no Folder Command
 				$icon = _GetFullIcon(IniRead($associni, $section[$i], "icon", ""))
 				$bFiles = _AssocFlag($section[$i], "files")
 				$bFolders = _AssocFlag($section[$i], "folders")
@@ -2391,21 +2430,22 @@ Func _FileAssociations($work)
 				$bRecycle = _AssocFlag($section[$i], "recycle")
 				$bBackground = _AssocFlag($section[$i], "background")
 				$bExt = _AssocHasExt($mode)
-				$bNeedMain = ($bFiles Or $bRecycle Or $bBackground Or $bExt) ; targets that always use the Command
-				If $section[$i] = "" Or $title = "none" Or Not ($bNeedMain Or $bFolders Or $bDrives) Or _
-						($bNeedMain And $cmdRaw = "") Or ($bFolders And $cmdFolder = "") Or ($bDrives And $cmdDrive = "") Then ; if any errors reading INI, goto next section
+				$bNeedMain = ($bFiles Or $bRecycle Or $bBackground Or $bExt) ; targets that use the Command
+				If $section[$i] = "" Or $title = "none" Or Not ($bNeedMain Or $bDrives Or $bFolders) Or _
+						($bNeedMain And $cmdRaw = "") Or ($bDrives And $cmdDrive = "") Or ($bFolders And $cmdFolder = "") Then ; if any errors reading INI, goto next section
 					MsgBox(0, "Error", "Error reading INI section." & @CRLF & "Section = `" & $section[$i] & "`")
 					ContinueLoop
 				EndIf
+				$bAdmin = _AssocFlag($section[$i], "admin") ; run as administrator
 				$bSingle = _AssocFlag($section[$i], "single") ; single selected item only (files, folders, drives, extensions)
-				$command = _RegCommand($cmdRaw) ; commands with %%1 get the multi-file launcher
+				$command = _RegCommandFor($cmdRaw, $bAdmin) ; commands with %%1 get the multi-file launcher
 				$sBase = "HKCU\Software\Classes\"
 				; special targets
 				If $bFiles Then _WriteVerb($sBase & "*\shell\PortableFileAssoc_" & $section[$i], $title, $command, $icon, $bSingle)
-				If $bFolders Then _WriteVerb($sBase & "Directory\shell\PortableFileAssoc_" & $section[$i], $title, _RegCommand($cmdFolder), $icon, $bSingle)
-				If $bDrives Then _WriteVerb($sBase & "Drive\shell\PortableFileAssoc_" & $section[$i], $title, _RegCommand($cmdDrive), $icon, $bSingle)
-				If $bBackground Then _WriteVerb($sBase & "Directory\Background\shell\PortableFileAssoc_" & $section[$i], $title, _RegCommandBg($cmdRaw), $icon)
-				If $bRecycle Then _WriteVerb($sBase & "CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell\" & $title, $title, $command, $icon)
+				If $bFolders Then _WriteVerb($sBase & "Directory\shell\PortableFileAssoc_" & $section[$i], $title, _RegCommandFor($cmdFolder, $bAdmin), $icon, $bSingle)
+				If $bDrives Then _WriteVerb($sBase & "Drive\shell\PortableFileAssoc_" & $section[$i], $title, _RegCommandFor($cmdDrive, $bAdmin), $icon, $bSingle)
+				If $bBackground Then _WriteVerb($sBase & "Directory\Background\shell\PortableFileAssoc_" & $section[$i], $title, _RegCommandBg($cmdRaw, $bAdmin), $icon)
+				If $bRecycle Then _WriteVerb($sBase & "CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell\" & $title, $title, _RegCommand($cmdRaw), $icon)
 				; file extensions
 				For $j = 1 To $mode[0]
 					If $mode[$j] = "" Then ContinueLoop ; no blank extension
@@ -2430,8 +2470,8 @@ Func _FileAssociations($work)
 				Next
 				; backup Applications keys
 				If $cmdRaw <> "" Then _AppKeyBackup(_GetExeName($cmdRaw))
-				If $bFolders And $cmdFolder <> $cmdRaw Then _AppKeyBackup(_GetExeName($cmdFolder))
 				If $bDrives And $cmdDrive <> $cmdRaw Then _AppKeyBackup(_GetExeName($cmdDrive))
+				If $bFolders And $cmdFolder <> $cmdRaw Then _AppKeyBackup(_GetExeName($cmdFolder))
 			Next
 			_WriteFtypeSettings()
 			_RefreshNow()
@@ -2450,14 +2490,14 @@ Func _FileAssociations($work)
 				$cmdRaw = ""
 				$sRaw = IniRead($associni, $section[$i], "command", "")
 				If $sRaw <> "" Then $cmdRaw = _GetFullCommand($sRaw)
-				$cmdFolder = ""
-				$sRaw = IniRead($associni, $section[$i], "foldercommand", "")
-				If $sRaw <> "" Then $cmdFolder = _GetFullCommand($sRaw)
-				If $cmdFolder = "" Then $cmdFolder = $cmdRaw
 				$cmdDrive = ""
 				$sRaw = IniRead($associni, $section[$i], "drivecommand", "")
 				If $sRaw <> "" Then $cmdDrive = _GetFullCommand($sRaw)
 				If $cmdDrive = "" Then $cmdDrive = $cmdRaw
+				$cmdFolder = ""
+				$sRaw = IniRead($associni, $section[$i], "foldercommand", "")
+				If $sRaw <> "" Then $cmdFolder = _GetFullCommand($sRaw)
+				If $cmdFolder = "" Then $cmdFolder = $cmdRaw
 				$sBase = "HKCU\Software\Classes\"
 				If _AssocFlag($section[$i], "files") Then _RegDeleteVerb($sBase & "*\shell\PortableFileAssoc_" & $section[$i], $sBase & "*")
 				If _AssocFlag($section[$i], "folders") Then _RegDeleteVerb($sBase & "Directory\shell\PortableFileAssoc_" & $section[$i], $sBase & "Directory")
@@ -2481,8 +2521,8 @@ Func _FileAssociations($work)
 				Dim $aDefaultAssociations[1] = [0]
 				; restore Applications keys
 				If $cmdRaw <> "" Then _AppKeyRestore(_GetExeName($cmdRaw))
-				If _AssocFlag($section[$i], "folders") And $cmdFolder <> $cmdRaw Then _AppKeyRestore(_GetExeName($cmdFolder))
 				If _AssocFlag($section[$i], "drives") And $cmdDrive <> $cmdRaw Then _AppKeyRestore(_GetExeName($cmdDrive))
+				If _AssocFlag($section[$i], "folders") And $cmdFolder <> $cmdRaw Then _AppKeyRestore(_GetExeName($cmdFolder))
 			Next
 			_RemoveFtypeSettings(True)
 			_RefreshNow()
@@ -2507,8 +2547,7 @@ EndFunc
 ;=======================================================================================
 ; Special targets are stored as flags in the association INI section (1 = on):
 ;   files, folders, drives, recycle, background      (+ single = single selected item only)
-; "mode" only holds file extensions.  "foldercommand" / "drivecommand" are optional commands for folders / drives
-; (empty = use "command").
+; "mode" only holds file extensions.  "drivecommand" is the command for drives (empty = use "command").
 ;=======================================================================================
 Func _IsChk($idCtrl)
 	Return BitAND(GUICtrlRead($idCtrl), $GUI_CHECKED) = $GUI_CHECKED
@@ -2544,12 +2583,10 @@ EndFunc
 
 Func _AssocUpdateControls()
 	; Files = every file (* wildcard): no extensions needed.
-	; Folder Command / Drive Command are optional overrides, only available when Folders / Drives is ticked.
-	; The Command is needed unless every target has its own command.
+	; Drives and Folders have their own command. Only folders / drives: the main Command is not needed.
 	Local $bFiles = _IsChk($chkFiles), $bFolders = _IsChk($chkFolders), $bDrives = _IsChk($chkDrives)
 	Local $bRecycle = _IsChk($chkRecycle), $bBackground = _IsChk($chkBackground)
-	Local $bMain = ($bFiles Or $bRecycle Or $bBackground Or StringStripWS(GUICtrlRead($iMode), 8) <> "")
-	Local $bNeedCmd = ($bMain Or ($bFolders And StringStripWS(GUICtrlRead($iFolderCmd), 8) = "") Or ($bDrives And StringStripWS(GUICtrlRead($iDriveCmd), 8) = ""))
+	Local $bUsesMain = ($bFiles Or $bRecycle Or $bBackground Or StringStripWS(GUICtrlRead($iMode), 8) <> "")
 	Local $iState
 
 	If $bFiles Then
@@ -2559,17 +2596,17 @@ Func _AssocUpdateControls()
 	EndIf
 
 	$iState = $GUI_DISABLE
-	If $bFolders Then $iState = $GUI_ENABLE
-	GUICtrlSetState($iFolderCmd, $iState)
-	GUICtrlSetState($bBtnFolder, $iState)
-
-	$iState = $GUI_DISABLE
 	If $bDrives Then $iState = $GUI_ENABLE
 	GUICtrlSetState($iDriveCmd, $iState)
 	GUICtrlSetState($bBtnDrive, $iState)
 
 	$iState = $GUI_DISABLE
-	If $bNeedCmd Then $iState = $GUI_ENABLE
+	If $bFolders Then $iState = $GUI_ENABLE
+	GUICtrlSetState($iFolderCmd, $iState)
+	GUICtrlSetState($bBtnFolder, $iState)
+
+	$iState = $GUI_ENABLE
+	If Not $bUsesMain And ($bDrives Or $bFolders) Then $iState = $GUI_DISABLE
 	GUICtrlSetState($iCommand, $iState)
 	GUICtrlSetState($bBtn, $iState)
 EndFunc
@@ -2624,6 +2661,25 @@ Func _MigrateAssocINI()
 			If $sCmd <> "" Then IniWrite($associni, $aSec[$i], "drivecommand", "'" & $sCmd & "'")
 			IniDelete($associni, $aSec[$i], "command")
 		EndIf
+	Next
+EndFunc
+
+Func _MigrateFolderCmd()
+	; older INI: a folders-only association used "command"; folders now have their own "foldercommand"
+	Local $aSec = IniReadSectionNames($associni), $i, $sCmd, $sMode
+	If @error Then Return
+	For $i = 1 To $aSec[0]
+		If Not _AssocFlag($aSec[$i], "folders") Then ContinueLoop
+		If IniRead($associni, $aSec[$i], "foldercommand", "") <> "" Then ContinueLoop
+		If _AssocFlag($aSec[$i], "files") Or _AssocFlag($aSec[$i], "recycle") Or _AssocFlag($aSec[$i], "background") Then ContinueLoop
+		$sMode = StringStripWS(IniRead($associni, $aSec[$i], "mode", ""), 8)
+		If $sMode <> "" Then ContinueLoop
+		$sCmd = IniRead($associni, $aSec[$i], "command", "")
+		If $sCmd = "" Then ContinueLoop
+		IniWrite($associni, $aSec[$i], "foldercommand", "'" & $sCmd & "'")
+		If _AssocFlag($aSec[$i], "drives") And IniRead($associni, $aSec[$i], "drivecommand", "") = "" Then _
+			IniWrite($associni, $aSec[$i], "drivecommand", "'" & $sCmd & "'")
+		IniDelete($associni, $aSec[$i], "command")
 	Next
 EndFunc
 
@@ -2724,11 +2780,31 @@ EndFunc
 ; The wrapper processes pool their files (temp queue files); the first one starts the real command.
 ; Files are passed in name order (same as Explorer's default sort).
 ;=======================================================================================
-Func _RegCommand($command)
+Func _RegCommand($command, $bAdmin = False)
 	If Not StringInStr($command, "%%1") Then Return $command
-	Local $sSelf = '"' & @ScriptFullPath & '"'
+	Local $sSelf = '"' & @ScriptFullPath & '"', $sMode = "multi_open"
 	If Not @Compiled Then $sSelf = '"' & @AutoItExe & '" ' & $sSelf
-	Return $sSelf & " multi_open " & StringTrimLeft(StringToBinary($command, 4), 2) & ' "%1"'
+	If $bAdmin Then $sMode = "multi_open_admin"
+	; "%1." : the added dot keeps a drive root like E:\ from ending in \" (read as an escaped quote); the launcher removes it again
+	Return $sSelf & " " & $sMode & " " & StringTrimLeft(StringToBinary($command, 4), 2) & ' "%1."'
+EndFunc
+
+Func _RegCommandFor($command, $bAdmin = False)
+	; %%1 -> multi-file launcher, Run as Admin -> launcher with elevation, otherwise the plain command
+	If StringInStr($command, "%%1") Then Return _RegCommand($command, $bAdmin)
+	If $bAdmin Then Return _RegCommandBg($command, True, '"%1."')
+	Return $command
+EndFunc
+
+Func _Launch($sCmd, $sWork, $bAdmin = False)
+	; ShellExecute (not Run): programs that need administrator rights cannot be started by Run(),
+	; ShellExecute shows the UAC prompt for them.  "runas" = always elevated.
+	Local $aCmd = _CommandSplit($sCmd), $sVerb = "", $iRet
+	Local $sExe = StringReplace($aCmd[0], '"', '')
+	If $bAdmin Then $sVerb = "runas"
+	$iRet = ShellExecute($sExe, $aCmd[1], $sWork, $sVerb)
+	If Not $iRet And Not $bAdmin Then Run($sCmd, $sWork)
+	Return $iRet
 EndFunc
 
 Func _MultiStamp() ; seconds counter, good enough to age out stale queue files
@@ -2806,35 +2882,39 @@ Func _MultiCollect($sBase) ; read + delete all queue files, return sorted paths:
 	Return $aRes
 EndFunc
 
-Func _MultiRun($sTemplate, $aPaths)
+Func _MultiRun($sTemplate, $aPaths, $bAdmin = False)
 	; replace %%1 with "file1" "file2" ... (split into several runs if the command line would get too long)
 	Local $sWork = @WorkingDir, $i, $sList = "", $sItem, $iPos
 	$sTemplate = StringReplace($sTemplate, '"%%1"', "%%1") ; "%%1" and %%1 mean the same
 	$iPos = StringInStr($aPaths[1], "\", 0, -1)
 	If $iPos >= 3 And FileExists(StringLeft($aPaths[1], $iPos)) Then $sWork = StringLeft($aPaths[1], $iPos)
 	For $i = 1 To $aPaths[0]
-		$sItem = '"' & $aPaths[$i] & '"'
+		$sItem = $aPaths[$i]
+		If StringRight($sItem, 1) = "\" Then $sItem &= "\" ; drive root E:\ must not escape the closing quote
+		$sItem = '"' & $sItem & '"'
 		If $sList <> "" And StringLen($sTemplate) + StringLen($sList) + StringLen($sItem) > 30000 Then
-			Run(StringReplace($sTemplate, "%%1", $sList), $sWork)
+			_Launch(StringReplace($sTemplate, "%%1", $sList), $sWork, $bAdmin)
 			$sList = ""
 		EndIf
 		If $sList <> "" Then $sList &= " "
 		$sList &= $sItem
 	Next
-	If $sList <> "" Then Run(StringReplace($sTemplate, "%%1", $sList), $sWork)
+	If $sList <> "" Then _Launch(StringReplace($sTemplate, "%%1", $sList), $sWork, $bAdmin)
 EndFunc
 
-Func _MultiOpen()
-	; $CmdLine: [1] = "multi_open", [2] = hex encoded command template, [3...] = selected path(s)
+Func _MultiOpen($bAdmin = False)
+	; $CmdLine: [1] = "multi_open", [2] = hex encoded command template, [3...] = selected path(s) + "."
 	Local $sTemplate = BinaryToString(Binary("0x" & $CmdLine[2]), 4)
 	If $sTemplate = "" Or Not StringInStr($sTemplate, "%%1") Then Return
 	Local $sKey = _MultiHash($CmdLine[2])
 	Local $sBase = @TempDir & "\PFA_multi_" & $sKey & "_"
 	Local $sMine = $sBase & @AutoItPID
-	Local $i, $sList = "", $hFile, $aErr, $iLast, $iCount, $hQuiet, $hTotal, $aPaths
+	Local $i, $sList = "", $sArg, $hFile, $aErr, $iLast, $iCount, $hQuiet, $hTotal, $aPaths
 
 	For $i = 3 To $CmdLine[0]
-		$sList &= $CmdLine[$i] & @LF
+		$sArg = $CmdLine[$i]
+		If StringRight($sArg, 1) = "." Then $sArg = StringTrimRight($sArg, 1) ; remove the protective dot
+		If $sArg <> "" Then $sList &= $sArg & @LF
 	Next
 	If $sList = "" Then Return
 
@@ -2851,7 +2931,7 @@ Func _MultiOpen()
 	If Not @error And $aErr[0] = 183 Then Return ; ERROR_ALREADY_EXISTS: another process is collecting
 
 	While 1
-		; wait until no new file has been published for 700 ms (max 30 s)
+		; wait until no new file has been published for 1500 ms (max 30 s)
 		$iLast = -1
 		$hQuiet = TimerInit()
 		$hTotal = TimerInit()
@@ -2860,14 +2940,14 @@ Func _MultiOpen()
 			If $iCount <> $iLast Then
 				$iLast = $iCount
 				$hQuiet = TimerInit()
-			ElseIf TimerDiff($hQuiet) >= 700 Then
+			ElseIf TimerDiff($hQuiet) >= 1500 Then
 				ExitLoop
 			EndIf
 			Sleep(50)
 		WEnd
 		$aPaths = _MultiCollect($sBase)
 		If $aPaths[0] = 0 Then ExitLoop
-		_MultiRun($sTemplate, $aPaths)
+		_MultiRun($sTemplate, $aPaths, $bAdmin)
 	WEnd
 EndFunc
 #EndRegion Multi-file launcher (%%1)
@@ -2880,16 +2960,17 @@ EndFunc
 ; ending in \" which most programs read as an escaped quote). The launcher removes the dot again,
 ; starts the command in that folder and passes the path safely quoted (C:\ becomes "C:\\").
 ;=======================================================================================
-Func _RegCommandBg($command)
-	Local $sSelf = '"' & @ScriptFullPath & '"'
+Func _RegCommandBg($command, $bAdmin = False, $sArg = '"%V."')
+	Local $sSelf = '"' & @ScriptFullPath & '"', $sMode = "bg_open"
 	If Not @Compiled Then $sSelf = '"' & @AutoItExe & '" ' & $sSelf
-	Return $sSelf & " bg_open " & StringTrimLeft(StringToBinary($command, 4), 2) & ' "%V."'
+	If $bAdmin Then $sMode = "bg_open_admin"
+	Return $sSelf & " " & $sMode & " " & StringTrimLeft(StringToBinary($command, 4), 2) & " " & $sArg
 EndFunc
 
-Func _BgOpen()
-	; $CmdLine: [1] = "bg_open", [2] = hex encoded command template, [3...] = folder path + "."
+Func _BgOpen($bAdmin = False)
+	; $CmdLine: [1] = "bg_open", [2] = hex encoded command template, [3...] = path + "."
 	Local $sTemplate = BinaryToString(Binary("0x" & $CmdLine[2]), 4)
-	Local $sPath = "", $sWork = @WorkingDir, $sQ, $i
+	Local $sPath = "", $sWork = @WorkingDir, $sQ, $i, $iP
 	If $sTemplate = "" Then Return
 	For $i = 3 To $CmdLine[0] ; join, in case the path was split at spaces
 		If $sPath <> "" Then $sPath &= " "
@@ -2897,19 +2978,26 @@ Func _BgOpen()
 	Next
 	$sPath = StringReplace($sPath, '"', "")
 	If StringRight($sPath, 1) = "." Then $sPath = StringTrimRight($sPath, 1) ; remove the protective dot
-	If $sPath <> "" And FileExists($sPath) Then $sWork = $sPath
+	If $sPath <> "" And FileExists($sPath) Then
+		If StringInStr(FileGetAttrib($sPath), "D") Then
+			$sWork = $sPath
+		Else ; a file: work in its folder
+			$iP = StringInStr($sPath, "\", 0, -1)
+			If $iP > 2 Then $sWork = StringLeft($sPath, $iP)
+		EndIf
+	EndIf
 	If $sPath = "" Then $sPath = $sWork
 	; path as one quoted argument; a trailing \ is doubled so it cannot escape the closing quote
 	$sQ = $sPath
 	If StringRight($sQ, 1) = "\" Then $sQ &= "\"
 	$sQ = '"' & $sQ & '"'
-	; %V, %1 and %%1 all mean "this folder", with or without quotes
+	; %V, %1 and %%1 all mean "this item", with or without quotes
 	$sTemplate = StringReplace($sTemplate, '"%V"', "%V")
 	$sTemplate = StringReplace($sTemplate, '"%%1"', "%V")
 	$sTemplate = StringReplace($sTemplate, '"%1"', "%V")
 	$sTemplate = StringReplace($sTemplate, "%%1", "%V")
 	$sTemplate = StringReplace($sTemplate, "%1", "%V")
-	Run(StringReplace($sTemplate, "%V", $sQ), $sWork)
+	_Launch(StringReplace($sTemplate, "%V", $sQ), $sWork, $bAdmin)
 EndFunc
 #EndRegion Background launcher (%V)
 
