@@ -119,7 +119,6 @@ GUIRegisterMsg(0x16, "_MY_WM_ENDSESSION") ; WM_ENDSESSION
 
 ; create missing directories
 If Not FileExists(@ScriptDir & "\Data\settings") Then DirCreate(@ScriptDir & "\Data\settings")
-If Not FileExists(@ScriptDir & "\Data\registry") Then DirCreate(@ScriptDir & "\Data\registry")
 If Not FileExists(@ScriptDir & "\Data\newitems") Then DirCreate(@ScriptDir & "\Data\newitems")
 
 ; convert old INIs
@@ -2171,6 +2170,22 @@ Func _WriteFtypeSettings()
 			Local $origftype = RegRead("HKCR\." & $aExts[$i], "")
 			Local $origdefaultassoc = RegRead("HKCR\" & $origftype & "\shell", "")
 			Local $defPFAassoc = IniRead($typesini, $aExts[$i], "default", "(no default)")
+			; Windows' own default app for the extension is stored in FileExts\.ext\UserChoice.  It is protected by a hash that
+			; includes the key's last write time, so a key that is deleted and written back later is rejected by Windows and the
+			; default app is reset (ie WinRAR is no longer the default for zip after Remove).  UserChoice is therefore left
+			; untouched unless a PFA default association must take over the double-click action of this extension.
+			Local $bHostDef = ($fCopyhost And ($origdefaultassoc <> "" Or ($origftype <> "" And _RegKeyExists("HKCR\" & $origftype & "\shell\open"))))
+			Local $bPFAdefault = ($defPFAassoc <> "(no default)" And Not ($fHostoverride And $bHostDef))
+			Local $bKeepUC = (Not $bPFAdefault And _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "\UserChoice"))
+			; Extensions that already have an entry in Explorer's "New" menu (docx, xlsx, pptx, zip, rar, txt, ...) lose or break that
+			; entry when their file type is replaced by PortableFileAssoc_<ext>: Office entries disappear, others get a wrong icon
+			; or name.  Such an extension is therefore left alone (the context-menu entries are still added, see _FileAssociations)
+			; unless a setting of the File Types dialog needs the file type: PFA default association, Hide extension,
+			; Copy Host Associations or Show in New menu.
+			Local $bWantNew = (Number(IniRead($typesini, $aExts[$i], "shownew", $GUI_UNCHECKED)) = $GUI_CHECKED)
+			Local $bHostNew = (_RegKeyExists("HKCR\." & $aExts[$i] & "\ShellNew") Or _
+					($origftype <> "" And _RegKeyExists("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew")))
+			If $bHostNew And Not ($bPFAdefault Or $fHide Or $fCopyhost Or $bWantNew) Then ContinueLoop
 			; write extension data
 			If _RegKeyExists("HKCU\Software\Classes\." & $aExts[$i]) Then
 				; extension exists
@@ -2187,12 +2202,24 @@ Func _WriteFtypeSettings()
 			EndIf
 			; set extension ftype
 			RegWrite("HKCU\Software\Classes\." & $aExts[$i], "", "REG_SZ", $ftype)
-			; Set the file type display name (also used by Explorer's New menu).
-			Local $newDisplayName = StringStripWS(IniRead($typesini, $aExts[$i], "newname", ""), 3)
-			If $newDisplayName = "" Then $newDisplayName = "PFA_" & $aExts[$i] & " File"
-			RegWrite("HKCU\Software\Classes\" & $ftype, "", "REG_SZ", $newDisplayName)
 			; Optional Explorer > New submenu entry (creates an empty file).
 			Local $fShowNew = (Number(IniRead($typesini, $aExts[$i], "shownew", $GUI_UNCHECKED)) = $GUI_CHECKED)
+			; Set the file type display name.  Explorer's New menu shows this name for every ShellNew entry that the host already has
+			; for the extension (ie zip, rar), so the "PFA_<ext> File" name is only used when "Show in New menu" is ticked.
+			; Otherwise the display name of the original (host) file type is kept.
+			Local $newDisplayName = "", $sFriendly = ""
+			If $fShowNew Then
+				$newDisplayName = StringStripWS(IniRead($typesini, $aExts[$i], "newname", ""), 3)
+				If $newDisplayName = "" Then $newDisplayName = "PFA_" & $aExts[$i] & " File"
+			Else
+				If $origftype <> "" And StringLeft($origftype, 17) <> "PortableFileAssoc" Then
+					$newDisplayName = RegRead("HKCR\" & $origftype, "")
+					$sFriendly = RegRead("HKCR\" & $origftype, "FriendlyTypeName")
+				EndIf
+				If $newDisplayName = "" Then $newDisplayName = StringUpper($aExts[$i]) & " File"
+			EndIf
+			RegWrite("HKCU\Software\Classes\" & $ftype, "", "REG_SZ", $newDisplayName)
+			If $sFriendly <> "" Then RegWrite("HKCU\Software\Classes\" & $ftype, "FriendlyTypeName", "REG_SZ", $sFriendly)
 			Local $fUseTemplate = ($fShowNew And Number(IniRead($typesini, $aExts[$i], "usetemplate", $GUI_UNCHECKED)) = $GUI_CHECKED)
 			Local $sTemplate = ""
 			If $fUseTemplate Then
@@ -2206,8 +2233,15 @@ Func _WriteFtypeSettings()
 				EndIf
 			EndIf
 			_ConfigureShellNew($aExts[$i], $fShowNew, $sTemplate)
+			; the host's New-menu entry of this extension is stored below its file type (ie .docx\Word.Document.12\ShellNew) and is only
+			; used while that file type is the extension's file type: copy it to the PFA file type so the entry stays in the New menu
+			If Not $fShowNew And $origftype <> "" And StringLeft($origftype, 17) <> "PortableFileAssoc" And _
+					_RegKeyExists("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew") Then _
+				_RegCopyKey("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew", "HKCU\Software\Classes\." & $aExts[$i] & "\" & $ftype & "\ShellNew")
 			; backup FileExts key
-			If _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) Then ; key exists
+			If $bKeepUC Then
+				; keep Windows' default app (UserChoice) as it is: nothing to back up, nothing to restore on remove
+			ElseIf _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) Then ; key exists
 				; backup
 				_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i], _
 							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA")
@@ -2327,6 +2361,7 @@ Func _RemoveFtypeSettings($fFinal = False)
 				; remove PFA New-menu registration value and file type
 				_RestoreShellNew($aExts[$i])
 				RegDelete("HKCU\Software\Classes\" & $ftype)
+				RegDelete("HKCU\Software\Classes\." & $aExts[$i] & "\" & $ftype) ; copy of the host's New-menu entry
 				If _RegValueExists("HKCU\Software\Classes\." & $aExts[$i], "_delete_") Then
 					; delete extension
 					RegDelete("HKCU\Software\Classes\." & $aExts[$i])

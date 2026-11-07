@@ -221,7 +221,7 @@ admin=1
 | **Iconfile** | The file to extract the icon from (`.exe`, `.dll` or `.ico`). Used when a host association is not the default action. |
 | **Index** | Index of the embedded icon in a multi-icon resource. Use the arrow buttons or type the index. `.ico` files do not use an index; leave it at `0`. |
 | **Show in New menu in context menu** | Adds the file type to Explorer's right-click → New submenu. |
-| **New menu name** | Name shown under right-click → New. Default: `PFA_<extension> File`. |
+| **New menu name** | Name shown under right-click → New. Default: `PFA_<extension> File`. Used only while **Show in New menu** is ticked. Otherwise PFA keeps the original Windows name of the file type, so entries that the host already has in the New menu (e.g. zip, rar) are not renamed to `PFA_...`. |
 | **Use template file** | New items are created from a template instead of an empty file (see below). |
 | **Save File Type** | Save file type changes. Must be done after each change. |
 | **Done** | Close the dialog. Prompts to apply changes if any were made while the associations are active. |
@@ -375,6 +375,8 @@ If PFA is already running, one command line parameter is available:
 - **Single file type** relies on the Windows verb setting `MultiSelectModel=Single`. If an entry still appears with several items selected on your Windows version, leave the option unchecked.
 - Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme.
 - Background entries do not appear in virtual folders such as This PC or Control Panel.
+- **Explorer's New menu:** extensions that already have a Windows / Office / WinRAR entry in the right-click → New menu (e.g. docx, xlsx, pptx, zip, rar, txt) keep it. PFA does **not** replace the file type of such an extension, and only adds the context-menu entries. The file type is replaced only when it is needed: a *Default PFA Association* is selected, *Hide extension*, *Copy Host Associations* or *Show in New menu* is ticked. In that case the original New entry is kept, but it uses the PFA icon of the file type. Extensions without a host New entry (e.g. mp4, iso) are handled as before.
+- **Windows default app (e.g. WinRAR for zip):** PFA leaves it untouched, so it is still the default after **Remove File Associations**. The only exception is an extension with a *Default PFA Association* (double-click action): Windows' default-app choice (`UserChoice`) must be removed for it, and Windows may reset it after removal, so you may have to choose the default app again. Leave *Default PFA Association* at *(no default)* to avoid this.
 - File extension entries are also written to `SystemFileAssociations\.<ext>\shell`, so they show up even when Windows has a default app chosen for the extension (typical for media files such as mp3 and mp4). Use **Remove File Associations** and **Add File Associations** once after updating.
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
 - After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
