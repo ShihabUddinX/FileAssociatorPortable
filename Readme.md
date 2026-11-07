@@ -15,6 +15,8 @@ Take your file associations with you. Open local files with your portable applic
 - [Profile](#profile)
 - [Theme](#theme)
 - [Tray menu](#tray-menu)
+- [Splash screen](#splash-screen)
+- [Update check](#update-check)
 - [System Restore](#system-restore)
 - [Modes of operation](#modes-of-operation)
 - [Known issues / notes](#known-issues--notes)
@@ -307,6 +309,7 @@ Left-click the tray icon to show the main window. Right-click it to access these
 
 | Item | Description |
 |---|---|
+| **Check For Update** | Checks now whether a newer version is available (see [Update check](#update-check)). |
 | **Rebuild icon cache on change** | If activated, the icon cache is rebuilt after associations are added or removed, or after icon changes are applied. Disabled by default; enable it if filetypes show incorrect icons. *(NT/2000/XP only)* |
 | **Refresh icons now** | Sends the `SHChangeNotify()` system message. If the option above is active, it also rebuilds the icon cache. On Windows Vista and newer this only sends the message. |
 | **Add associations on start** | If activated, the associations of the **last active profile** are added automatically when PFA is started without command line arguments (the GUI starts minimized to the tray, like `add_gui`). Saved in `Data\settings\profile.ini` as `[profile] commandline=add_gui` (activated) or `commandline=` (not activated). Starting PFA with command line arguments (e.g. `PortableFileAssociator.exe add_gui`) ignores this setting. |
@@ -402,6 +405,32 @@ DisableSplash=true
 - If the exe is renamed, the INI name follows the exe name.
 - PFA only reads this file, it never writes it.
 
+The same file can switch off the update check on start (see [Update check](#update-check)):
+
+```ini
+DisableUpdateCheck=true
+```
+
+---
+
+## Update check
+
+PFA checks for a new version:
+
+- **on every start** of the program window (normal start and `add_gui` / **Add associations on start**), in the background. Nothing is shown if there is no newer version or if the check fails (no internet).
+- when you choose **Check For Update** in the tray menu (right-click the tray icon). Then a message is also shown if you are up to date, or if the check failed.
+
+**How it works:** PFA reads the file [`.github/version.pfa`](https://github.com/ShihabUddinX/PortableFileAssociator/blob/main/.github/version.pfa) of the GitHub project (main branch). The file contains only the latest version number, e.g. `3.0.0.4`, and nothing else. If that version is higher than the running version, the message *A new version of PortableFileAssociator is available* is shown:
+
+- **OK** opens the download page `https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/<version>` (e.g. `.../releases/tag/3.0.0.4`).
+- **Cancel** or the close button closes the message.
+
+The check runs in the background, the program does not wait for the network (time limit 15 seconds). Versions are compared number by number, so `3.0.0.10` is newer than `3.0.0.9`.
+
+To switch off the check on start, put `DisableUpdateCheck=true` into `PortableFileAssociator.ini` (see [Splash screen](#splash-screen)). The tray menu item still works.
+
+**For the maintainer:** publish the GitHub release (tag = version number) first, then change the version in `.github/version.pfa`.
+
 ---
 
 ## Changelog
@@ -409,6 +438,7 @@ DisableSplash=true
 ### 3.0.0.4
 
 - Added: optional file `PortableFileAssociator.ini` (the exe name + `.ini`, in the folder of the exe) to switch off the splash screen with `DisableSplash=true` (see [Splash screen](#splash-screen)).
+- Added: update check on every start and **Check For Update** in the tray menu (see [Update check](#update-check)). `DisableUpdateCheck=true` in `PortableFileAssociator.ini` switches the check on start off.
 - Fixed: the file properties of the exe (file version, product version, company, copyright ...) are now also set with `#pragma compile` lines, so they show on the Details tab however the script is compiled.
 
 ### 3.0.0.3

@@ -62,6 +62,10 @@ Opt("MustDeclareVars", 1) ; must declare variables before use
 Opt("WinTitleMatchMode", 3) ; exact title match
 
 Global Const $version = "3.0.0.4"
+; update checker (see "Update checker" region)
+Global Const $UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ShihabUddinX/PortableFileAssociator/main/.github/version.pfa"
+Global Const $UPDATE_RELEASE_URL = "https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/"
+Global $oUpdate = 0, $hUpdateTimer = 0, $fUpdateManual = False, $iUpdateComErr = 0, $trayupdate
 
 #Region Commandline
 Global $wndMSG, $wndMSG_msg = -1
@@ -160,7 +164,12 @@ _SetTrayStatus()
 #EndRegion Init
 ; GUI loop
 While 1
-	Sleep(1000)
+	If IsObj($oUpdate) Then ; update check running: look at it often
+		Sleep(150)
+		_UpdatePoll()
+	Else
+		Sleep(1000)
+	EndIf
 WEnd
 
 #Region Misc Functions
@@ -525,6 +534,7 @@ EndFunc
 Func _InitAllGUIs($guimode = "")
 	Local $hSplash = 0, $hSplashTimer = 0
 	If $guimode = "" Or $guimode = "add_gui" Then $hSplash = _SplashShow($hSplashTimer) ; splash screen (also while "add on start" adds the associations)
+	If Not _ExeIniFlag("DisableUpdateCheck") Then _UpdateCheckStart(False) ; update check on every start, in the background
 	_ThemeLoad() ; read theme setting (system / light / dark)
 	TraySetClick(8) ; show menu only on right-click
 	TraySetState(1) ; show tray icon
@@ -604,6 +614,7 @@ Func _InitAllGUIs($guimode = "")
 	$trayaddonstart = TrayCreateItem("Add associations on start")
 	$trayonclose = TrayCreateItem("Remove associations on close")
 	TrayCreateItem("")
+	$trayupdate = TrayCreateItem("Check For Update")
 	TrayCreateItem("")
 	$trayexit = TrayCreateItem("Exit")
 
@@ -613,6 +624,7 @@ Func _InitAllGUIs($guimode = "")
 	TrayItemSetOnEvent($trayonclose, "_ToggleOnClose")
 	TrayItemSetOnEvent($rebuildonchange, "_ToggleRebuildOnChange")
 	TrayItemSetOnEvent($refreshnow, "_RefreshNow")
+	TrayItemSetOnEvent($trayupdate, "_UpdateCheckManual")
 	TrayItemSetOnEvent($trayexit, "_Exit")
 
 	; control events
@@ -3336,14 +3348,123 @@ Func _ProfileIconsFree()
 	$fGDIP = False
 EndFunc
 
+#Region Update checker
+;=======================================================================================
+; Update checker.  Reads the latest version from .github/version.pfa (GitHub, main branch), the file only contains the
+; version number (ie 3.0.0.4).  If it is newer than the running version, a message offers the release page
+;   https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/<version>
+; The request is asynchronous (the program does not wait for the network), the main loop polls it (_UpdatePoll).
+;=======================================================================================
+Func _UpdateComErr($oErr)
+	$iUpdateComErr = $oErr.number
+EndFunc
+
+Func _UpdateCheckManual()
+	TrayTip("PortableFileAssociator", "Checking for updates...", 3)
+	_UpdateCheckStart(True)
+EndFunc
+
+Func _UpdateCheckStart($fManual = False)
+	If $fManual Then $fUpdateManual = True ; show "up to date" / error messages too
+	If IsObj($oUpdate) Then Return ; a check is already running
+	$iUpdateComErr = 0
+	ObjEvent("AutoIt.Error", "_UpdateComErr")
+	$oUpdate = ObjCreate("MSXML2.XMLHTTP.6.0")
+	If Not IsObj($oUpdate) Then $oUpdate = ObjCreate("MSXML2.XMLHTTP")
+	If Not IsObj($oUpdate) Then
+		$oUpdate = 0
+		_UpdateFinish(False, "")
+		Return
+	EndIf
+	$oUpdate.open("GET", $UPDATE_VERSION_URL & "?t=" & @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC, True)
+	$oUpdate.setRequestHeader("Cache-Control", "no-cache")
+	$oUpdate.send()
+	If $iUpdateComErr Then
+		$oUpdate = 0
+		_UpdateFinish(False, "")
+		Return
+	EndIf
+	$hUpdateTimer = TimerInit()
+EndFunc
+
+Func _UpdatePoll()
+	If Not IsObj($oUpdate) Then Return
+	Local $iState = $oUpdate.readyState, $iStatus = 0, $sText = ""
+	If $iUpdateComErr Then
+		$oUpdate = 0
+		_UpdateFinish(False, "")
+		Return
+	EndIf
+	If $iState <> 4 Then ; not finished yet
+		If TimerDiff($hUpdateTimer) > 15000 Then ; give up after 15 seconds
+			$oUpdate.abort()
+			$oUpdate = 0
+			_UpdateFinish(False, "")
+		EndIf
+		Return
+	EndIf
+	$iStatus = $oUpdate.status
+	If $iStatus = 200 And Not $iUpdateComErr Then $sText = $oUpdate.responseText
+	$oUpdate = 0
+	If $iStatus <> 200 Or $iUpdateComErr Then
+		_UpdateFinish(False, "")
+		Return
+	EndIf
+	; the file only contains the version number: first line, no BOM / spaces
+	$sText = StringStripWS(StringReplace($sText, ChrW(0xFEFF), ""), 3)
+	$sText = StringStripWS(StringRegExpReplace($sText, "(?s)[\r\n].*$", ""), 3)
+	If Not StringRegExp($sText, "^\d+(\.\d+){1,3}$") Then
+		_UpdateFinish(False, "")
+		Return
+	EndIf
+	_UpdateFinish(True, $sText)
+EndFunc
+
+Func _UpdateFinish($bOK, $sLatest)
+	Local $fManual = $fUpdateManual
+	$fUpdateManual = False
+	If Not $bOK Then
+		If $fManual Then MsgBox(48 + 262144, "Check For Update", "Could not check for updates." & @CRLF & "Please check your internet connection and try again.")
+		Return
+	EndIf
+	If _VersionIsNewer($sLatest, $version) Then
+		If 1 = MsgBox(1 + 64 + 262144, "Update available", "A new version of PortableFileAssociator is available." & @CRLF & @CRLF & _
+				"Installed version:  " & $version & @CRLF & "Latest version:  " & $sLatest & @CRLF & @CRLF & _
+				"Click OK to open the download page, or Cancel to close.") Then ShellExecute($UPDATE_RELEASE_URL & $sLatest)
+	ElseIf $fManual Then
+		MsgBox(64 + 262144, "Check For Update", "You are running the latest version (" & $version & ").")
+	EndIf
+EndFunc
+
+Func _VersionIsNewer($sNew, $sCur)
+	; True if version $sNew (ie 3.0.0.5) is higher than $sCur, compared number by number
+	Local $a = StringSplit($sNew, "."), $b = StringSplit($sCur, "."), $i, $x, $y
+	For $i = 1 To 4
+		$x = 0
+		$y = 0
+		If $i <= $a[0] Then $x = Number($a[$i])
+		If $i <= $b[0] Then $y = Number($b[$i])
+		If $x > $y Then Return True
+		If $x < $y Then Return False
+	Next
+	Return False
+EndFunc
+#EndRegion Update checker
+
 Func _SplashDisabledByINI()
+	Return _ExeIniFlag("DisableSplash")
+EndFunc
+
+Func _ExeIniFlag($sKey)
 	; <exe name>.ini in the folder of the exe (ie PortableFileAssociator.ini), optional, no section needed:
-	;    DisableSplash=true   -> no splash screen   (missing file, missing key or any other value = show the splash screen)
+	;    DisableSplash=true        -> no splash screen
+	;    DisableUpdateCheck=true   -> no update check on start
+	; (missing file, missing key or any other value = False; true, 1, yes, on = True)
 	Local $sIni = @ScriptDir & "\" & StringRegExpReplace(@ScriptName, "\.[^.]*$", "") & ".ini"
 	If Not FileExists($sIni) Then Return False
 	Local $sTxt = FileRead($sIni)
 	If @error Or $sTxt = "" Then Return False
-	Local $aM = StringRegExp($sTxt, "(?im)^\s*DisableSplash\s*=\s*([^\r\n;#]*)", 3)
+	Local $aM = StringRegExp($sTxt, "(?im)^\s*" & $sKey & "\s*=\s*([^\r\n;#]*)", 3)
 	If @error Then Return False
 	Local $sVal = StringLower(StringStripWS(StringReplace($aM[0], '"', ""), 8))
 	Return ($sVal = "true" Or $sVal = "1" Or $sVal = "yes" Or $sVal = "on")
