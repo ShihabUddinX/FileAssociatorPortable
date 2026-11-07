@@ -68,7 +68,7 @@ The special targets are tick boxes under **Also add to**. Any combination can be
 | **Drives** | all drives (*Drive Command*) | `Software\Classes\Drive\shell` |
 | **Recycle Bin** | the Recycle Bin | `Software\Classes\CLSID\{645FF040-…}\shell` |
 | **Background** | empty space of a folder window and of the Desktop (like "Open Terminal here") | `Software\Classes\Directory\Background\shell` |
-| *extension* | a specific file extension, e.g. `txt` | `Software\Classes\PortableFileAssoc_<ext>\shell` |
+| *extension* | a specific file extension, e.g. `txt` | `Software\Classes\PortableFileAssoc_<ext>\shell` and `Software\Classes\SystemFileAssociations\.<ext>\shell` |
 
 > **Files** already covers every file, so the *Associated Types* box is disabled while it is ticked.
 
@@ -375,6 +375,7 @@ If PFA is already running, one command line parameter is available:
 - **Single file type** relies on the Windows verb setting `MultiSelectModel=Single`. If an entry still appears with several items selected on your Windows version, leave the option unchecked.
 - Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme.
 - Background entries do not appear in virtual folders such as This PC or Control Panel.
+- File extension entries are also written to `SystemFileAssociations\.<ext>\shell`, so they show up even when Windows has a default app chosen for the extension (typical for media files such as mp3 and mp4). Use **Remove File Associations** and **Add File Associations** once after updating.
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
 - After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
 

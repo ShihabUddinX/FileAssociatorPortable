@@ -2462,6 +2462,11 @@ Func _FileAssociations($work)
 					; write association data
 					$verbKey = $sBase & $targetClass & "\shell\PFA_" & $i & "_" & $j
 					_WriteVerb($verbKey, $title, $command, $icon, $bSingle)
+					; Also write the same verb to SystemFileAssociations\.ext.  Windows ignores the .ext -> PortableFileAssoc_ext
+					; link when the user has a default app chosen (FileExts\.ext\UserChoice, usual for mp3, mp4, ...), so the verb
+					; in the PortableFileAssoc_ext class would not be shown.  SystemFileAssociations is always merged into the menu.
+					If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" Then _
+						_WriteVerb($sBase & "SystemFileAssociations\." & $mode[$j] & "\shell\PFA_" & $i & "_" & $j, $title, $command, $icon, $bSingle)
 					; Only normal extensions are listed as configurable PFA file types.
 					If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" Then
 						$aDefaultAssociations[0] += 1
@@ -2516,6 +2521,9 @@ Func _FileAssociations($work)
 							$targetClass = "PortableFileAssoc_" & $mode[$j]
 					EndSwitch
 					RegDelete($sBase & $targetClass & "\shell\PFA_" & $i & "_" & $j)
+					If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" Then _
+						_RegDeleteVerb($sBase & "SystemFileAssociations\." & $mode[$j] & "\shell\PFA_" & $i & "_" & $j, _
+								$sBase & "SystemFileAssociations\." & $mode[$j]) ; also removes the empty parent keys
 				Next
 				; reset default association array
 				Dim $aDefaultAssociations[1] = [0]
