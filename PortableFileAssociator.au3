@@ -8,8 +8,8 @@
 #AutoIt3Wrapper_Res_Description=PortableFileAssociator
 #AutoIt3Wrapper_Res_ProductName=PortableFileAssociator
 #AutoIt3Wrapper_Res_CompanyName=ShihabUddinX
-#AutoIt3Wrapper_Res_Fileversion=3.0.0.1
-#AutoIt3Wrapper_Res_ProductVersion=3.0.0.1
+#AutoIt3Wrapper_Res_Fileversion=3.0.0.3
+#AutoIt3Wrapper_Res_ProductVersion=3.0.0.3
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright (c) ShihabUddinX. Original work by Erik Pilsits
 #AutoIt3Wrapper_Res_LegalTrademarks=ShihabUddinX
 #AutoIt3Wrapper_Res_Field=Owner|ShihabUddinX
@@ -20,6 +20,7 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 
 #include <_RegFunc.au3>
+#include <_SplashData.au3>
 #include <Constants.au3>
 #include <ButtonConstants.au3>
 #include <GUIConstantsEx.au3>
@@ -45,7 +46,7 @@ Opt("TrayOnEventMode", 1) ; enable tray events
 Opt("MustDeclareVars", 1) ; must declare variables before use
 Opt("WinTitleMatchMode", 3) ; exact title match
 
-Global Const $version = "3.0.0.1"
+Global Const $version = "3.0.0.3"
 
 #Region Commandline
 Global $wndMSG, $wndMSG_msg = -1
@@ -507,6 +508,8 @@ EndFunc
 ;=======================================================================================
 
 Func _InitAllGUIs($guimode = "")
+	Local $hSplash = 0, $hSplashTimer = 0
+	If $guimode = "" Or $guimode = "add_gui" Then $hSplash = _SplashShow($hSplashTimer) ; splash screen (also while "add on start" adds the associations)
 	_ThemeLoad() ; read theme setting (system / light / dark)
 	TraySetClick(8) ; show menu only on right-click
 	TraySetState(1) ; show tray icon
@@ -616,6 +619,7 @@ Func _InitAllGUIs($guimode = "")
 #EndRegion ===== main GUI & tray
 #Region	===== association GUI
 	$aGUI = GUICreate("Edit Associations", 550, 490, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_aGUIClose") ; close button (X) = Done
 	; association list and editor labels
 	$lSec = GUICtrlCreateList("", 10, 34, 108, 430, BitOR($LBS_SORT, $WS_HSCROLL, $WS_VSCROLL))
 	GUICtrlCreateLabel("Associations", 10, 12, 100, 18)
@@ -700,7 +704,8 @@ Func _InitAllGUIs($guimode = "")
 	_AssocUpdateControls()
 #EndRegion ===== association GUI
 #Region	===== types GUI
-	$tGUI = GUICreate("Configure File Types", 465, 340, -1, -1, $WS_CAPTION, $WS_EX_TOOLWINDOW, $nGUI)
+	$tGUI = GUICreate("Configure File Types", 465, 340, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_tGUIClose") ; close button (X) = Done
 
 	GUICtrlCreateLabel("Association:", 10, 13)
 	$ftypeAssocFilter = GUICtrlCreateCombo("", 78, 8, 180, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
@@ -750,7 +755,8 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($indexupdown, "_GetIcon")
 #EndRegion ===== types GUI
 #Region ===== SendTo GUI
-	$sGUI = GUICreate("SendTo Configuration", 600, 315, -1, -1, $WS_CAPTION, $WS_EX_TOOLWINDOW, $nGUI)
+	$sGUI = GUICreate("SendTo Configuration", 600, 315, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_sCloseGUI") ; close button (X) = Done
 	$hsLV = _GUICtrlListView_Create($sGUI, "Shortcut Name|Path", 5, 5, 590, 250, BitOR($WS_BORDER, $LVS_NOSORTHEADER, $LVS_REPORT, $LVS_SHOWSELALWAYS), _
 																					$WS_EX_ACCEPTFILES)
 	_GUICtrlListView_SetExtendedListViewStyle($hsLV, BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT), BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT))
@@ -785,9 +791,11 @@ Func _InitAllGUIs($guimode = "")
 
 	GUISwitch($nGUI) ; switch to main GUI
 	If $guimode = "add_gui" Then
-		_AddAssociations()
+		_AddAssociations() ; add the associations while the splash screen is shown (no extra waiting time)
+		_SplashHide($hSplash, $hSplashTimer)
 		GUISetState(@SW_SHOWMINNOACTIVE)
 	Else
+		_SplashHide($hSplash, $hSplashTimer)
 		GUISetState(@SW_SHOW) ; show main GUI
 	EndIf
 EndFunc
@@ -3107,6 +3115,11 @@ Func _ThemeEvent()
 	_ThemeApply()
 EndFunc
 
+Func _OSBuildAtLeast($iBuild)
+	; Windows 10 / 11 build number check (Windows 7 = 7601, Windows 10 1903 = 18362)
+	Return (Number(@OSBuild) >= $iBuild)
+EndFunc
+
 Func _ThemeClass($h)
 	Local $tBuf = DllStructCreate("wchar[64]")
 	Local $a = DllCall("user32.dll", "int", "GetClassNameW", "hwnd", $h, "struct*", $tBuf, "int", 64)
@@ -3143,20 +3156,26 @@ Func _ThemeApply($hOnly = 0)
 	EndIf
 
 	If Not $hOnly Then
-		; dark popup / tray menus (uxtheme ordinals: 135 = SetPreferredAppMode, 136 = FlushMenuThemes)
-		If $fDark Then
-			DllCall("uxtheme.dll", "int", 135, "int", 2)
-		Else
-			DllCall("uxtheme.dll", "int", 135, "int", 0)
+		; dark popup / tray menus (uxtheme ordinals: 135 = SetPreferredAppMode, 136 = FlushMenuThemes).
+		; These ordinals only exist as such in Windows 10 1903 (build 18362) and newer.  On older Windows (Windows 7 ...) the same
+		; ordinals are other functions, calling them crashes the program (APPCRASH), so they are skipped there.
+		If _OSBuildAtLeast(18362) Then
+			If $fDark Then
+				DllCall("uxtheme.dll", "int", 135, "int", 2)
+			Else
+				DllCall("uxtheme.dll", "int", 135, "int", 0)
+			EndIf
+			DllCall("uxtheme.dll", "none", 136)
 		EndIf
-		DllCall("uxtheme.dll", "none", 136)
 	EndIf
 
 	; window background + title bar
 	For $j = 0 To $iCount - 1
 		GUISetBkColor($iBgCol, $aTargets[$j])
-		DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 20, "int*", $iVal, "dword", 4)
-		DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 19, "int*", $iVal, "dword", 4)
+		If _OSBuildAtLeast(17763) Then ; dark title bar attributes exist since Windows 10 1809
+			DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 20, "int*", $iVal, "dword", 4)
+			DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 19, "int*", $iVal, "dword", 4)
+		EndIf
 	Next
 
 	; controls
@@ -3300,6 +3319,35 @@ Func _ProfileIconsFree()
 	Next
 	If $fGDIP Then _GDIPlus_Shutdown()
 	$fGDIP = False
+EndFunc
+
+Func _SplashShow(ByRef $hTimer)
+	; shows the embedded splash image (_SplashData.au3) in its own borderless window, returns the window handle (0 = no splash)
+	Local $sFile = @TempDir & "\PFA_splash_" & @AutoItPID & ".jpg", $bData, $hFile, $hGUI, $idPic
+	$bData = _B64ToBinary(_SplashJpgBase64())
+	If @error Or BinaryLen($bData) = 0 Then Return 0
+	$hFile = FileOpen($sFile, 2 + 16) ; overwrite, binary
+	If $hFile = -1 Then Return 0
+	FileWrite($hFile, $bData)
+	FileClose($hFile)
+	$hGUI = GUICreate("PortableFileAssociator splash", 416, 249, -1, -1, $WS_POPUP, BitOR($WS_EX_TOPMOST, $WS_EX_TOOLWINDOW))
+	$idPic = GUICtrlCreatePic($sFile, 0, 0, 416, 249) ; the image is loaded here, the file is not needed afterwards
+	FileDelete($sFile)
+	If $idPic = 0 Then
+		GUIDelete($hGUI)
+		Return 0
+	EndIf
+	GUISetState(@SW_SHOW, $hGUI)
+	Sleep(50) ; let Windows draw the window before the work starts
+	$hTimer = TimerInit()
+	Return $hGUI
+EndFunc
+
+Func _SplashHide($hGUI, $hTimer)
+	If Not $hGUI Then Return
+	Local $iLeft = 2000 - TimerDiff($hTimer) ; show it for at least 2 seconds
+	If $iLeft > 0 Then Sleep($iLeft)
+	GUIDelete($hGUI)
 EndFunc
 
 Func _B64ToBinary($sB64)

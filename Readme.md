@@ -1,6 +1,6 @@
 # PortableFileAssociator
 
-**Version 3.0.0.1**
+**Version 3.0.0.3**
 
 **Owner / Trademark:** ShihabUddinX · Original work by Erik Pilsits
 
@@ -33,7 +33,7 @@ Take your file associations with you. Open local files with your portable applic
 | **Create System Restore Point** | Creates a Windows restore point (see [System Restore](#system-restore)). |
 | **Profile** | Profile selection and profile buttons (see [Profile](#profile)). |
 | **Theme** | System / Light / Dark (see [Theme](#theme)). |
-| **Version** | The version number (e.g. `v3.0.0.1`) is shown at the bottom left of the main window. It is also the file version of `PortableFileAssociator.exe`. |
+| **Version** | The version number (e.g. `v3.0.0.3`) is shown at the bottom left of the main window. It is also the file version of `PortableFileAssociator.exe`. |
 | **Owner** | ShihabUddinX (owner and trademark). Also written in the file properties of `PortableFileAssociator.exe` (Company, Legal copyright, Legal trademarks). Original work by Erik Pilsits. |
 
 ---
@@ -380,6 +380,28 @@ If PFA is already running, one command line parameter is available:
 - File extension entries are also written to `SystemFileAssociations\.<ext>\shell`, so they show up even when Windows has a default app chosen for the extension (typical for media files such as mp3 and mp4). Use **Remove File Associations** and **Add File Associations** once after updating.
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
 - After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
+
+## Changelog
+
+### 3.0.0.3
+
+- Changed: the splash screen is now also shown when PFA starts with **Add associations on start** (`add_gui`). The associations are added while the splash screen is shown, so the splash time is not extra waiting time. It is shown for at least 2 seconds. Not shown for `add`, `remove` and the context-menu launchers.
+- Changed: the splash screen is a borderless window of its own (more reliable than the old splash function).
+
+### 3.0.0.2
+
+- Fixed: crash (APPCRASH) at start on Windows 7 and other Windows versions older than Windows 10 1903. The dark theme code called functions that only exist in newer Windows.
+- Fixed: the Close button (X) of the Associations, File Types and SendTo windows was missing or did not work. It now works like **Done**.
+- Added: splash screen ("Development Test Release") when the program window is started. It is not shown for `add`, `add_gui`, `remove` and the context-menu launchers. It is embedded in the program (`_SplashData.au3`). *(3.0.0.3: also shown for `add_gui`.)*
+- Fixed: the Windows default app (e.g. WinRAR for zip) is kept when the associations are removed.
+- Fixed: extension entries now also show for files that have a default app chosen (e.g. mp3, mp4).
+- Fixed: PFA no longer breaks the Explorer New menu entries (Word, Excel, PowerPoint, WinRAR ...).
+- Added: Folder Command, Run as Admin, Add associations on start (tray menu), `%%1` fixes.
+- Every changed release gets a new version number.
+
+### 3.0.0.1
+
+- First test release of the changes above (superseded by 3.0.0.2 and 3.0.0.3).
 
 ---
 
