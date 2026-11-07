@@ -8,16 +8,31 @@
 #AutoIt3Wrapper_Res_Description=PortableFileAssociator
 #AutoIt3Wrapper_Res_ProductName=PortableFileAssociator
 #AutoIt3Wrapper_Res_CompanyName=ShihabUddinX
-#AutoIt3Wrapper_Res_Fileversion=3.0.0.3
-#AutoIt3Wrapper_Res_ProductVersion=3.0.0.3
+#AutoIt3Wrapper_Res_Fileversion=3.0.0.4
+#AutoIt3Wrapper_Res_ProductVersion=3.0.0.4
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright (c) ShihabUddinX. Original work by Erik Pilsits
 #AutoIt3Wrapper_Res_LegalTrademarks=ShihabUddinX
 #AutoIt3Wrapper_Res_Field=Owner|ShihabUddinX
+#AutoIt3Wrapper_Res_Fileversion_AutoIncrement=n
+#AutoIt3Wrapper_Res_Field=ProductName|PortableFileAssociator
+#AutoIt3Wrapper_Res_Field=InternalName|PortableFileAssociator
+#AutoIt3Wrapper_Res_Field=OriginalFilename|PortableFileAssociator.exe
 #AutoIt3Wrapper_Res_Language=1033
 #AutoIt3Wrapper_AU3Check_Parameters=-q -d -w 1 -w 2 -w 3 -w 4 -w 5 -w 6
 #AutoIt3Wrapper_Run_Obfuscator=y
 #Obfuscator_Parameters=/sf=1 /sv=1 /om /cs=0 /cn=0
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
+; File properties (Details tab of the exe).  The #pragma lines work with Aut2Exe too, the AutoIt3Wrapper lines above only with SciTE4AutoIt.
+#pragma compile(FileVersion, 3.0.0.4)
+#pragma compile(ProductVersion, 3.0.0.4)
+#pragma compile(FileDescription, PortableFileAssociator)
+#pragma compile(ProductName, PortableFileAssociator)
+#pragma compile(InternalName, PortableFileAssociator)
+#pragma compile(OriginalFilename, PortableFileAssociator.exe)
+#pragma compile(CompanyName, ShihabUddinX)
+#pragma compile(LegalCopyright, Copyright ShihabUddinX. Original work by Erik Pilsits)
+#pragma compile(LegalTrademarks, ShihabUddinX)
+#pragma compile(Comments, Create custom portable file associations and context menus.)
 
 #include <_RegFunc.au3>
 #include <_SplashData.au3>
@@ -46,7 +61,7 @@ Opt("TrayOnEventMode", 1) ; enable tray events
 Opt("MustDeclareVars", 1) ; must declare variables before use
 Opt("WinTitleMatchMode", 3) ; exact title match
 
-Global Const $version = "3.0.0.3"
+Global Const $version = "3.0.0.4"
 
 #Region Commandline
 Global $wndMSG, $wndMSG_msg = -1
@@ -3321,9 +3336,23 @@ Func _ProfileIconsFree()
 	$fGDIP = False
 EndFunc
 
+Func _SplashDisabledByINI()
+	; <exe name>.ini in the folder of the exe (ie PortableFileAssociator.ini), optional, no section needed:
+	;    DisableSplash=true   -> no splash screen   (missing file, missing key or any other value = show the splash screen)
+	Local $sIni = @ScriptDir & "\" & StringRegExpReplace(@ScriptName, "\.[^.]*$", "") & ".ini"
+	If Not FileExists($sIni) Then Return False
+	Local $sTxt = FileRead($sIni)
+	If @error Or $sTxt = "" Then Return False
+	Local $aM = StringRegExp($sTxt, "(?im)^\s*DisableSplash\s*=\s*([^\r\n;#]*)", 3)
+	If @error Then Return False
+	Local $sVal = StringLower(StringStripWS(StringReplace($aM[0], '"', ""), 8))
+	Return ($sVal = "true" Or $sVal = "1" Or $sVal = "yes" Or $sVal = "on")
+EndFunc
+
 Func _SplashShow(ByRef $hTimer)
 	; shows the embedded splash image (_SplashData.au3) in its own borderless window, returns the window handle (0 = no splash)
 	Local $sFile = @TempDir & "\PFA_splash_" & @AutoItPID & ".jpg", $bData, $hFile, $hGUI, $idPic
+	If _SplashDisabledByINI() Then Return 0
 	$bData = _B64ToBinary(_SplashJpgBase64())
 	If @error Or BinaryLen($bData) = 0 Then Return 0
 	$hFile = FileOpen($sFile, 2 + 16) ; overwrite, binary

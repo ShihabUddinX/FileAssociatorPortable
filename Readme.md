@@ -1,6 +1,6 @@
 # PortableFileAssociator
 
-**Version 3.0.0.3**
+**Version 3.0.0.4**
 
 **Owner / Trademark:** ShihabUddinX · Original work by Erik Pilsits
 
@@ -33,7 +33,7 @@ Take your file associations with you. Open local files with your portable applic
 | **Create System Restore Point** | Creates a Windows restore point (see [System Restore](#system-restore)). |
 | **Profile** | Profile selection and profile buttons (see [Profile](#profile)). |
 | **Theme** | System / Light / Dark (see [Theme](#theme)). |
-| **Version** | The version number (e.g. `v3.0.0.3`) is shown at the bottom left of the main window. It is also the file version of `PortableFileAssociator.exe`. |
+| **Version** | The version number (e.g. `v3.0.0.4`) is shown at the bottom left of the main window. It is also the file version of `PortableFileAssociator.exe`. |
 | **Owner** | ShihabUddinX (owner and trademark). Also written in the file properties of `PortableFileAssociator.exe` (Company, Legal copyright, Legal trademarks). Original work by Erik Pilsits. |
 
 ---
@@ -381,7 +381,35 @@ If PFA is already running, one command line parameter is available:
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
 - After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
 
+## Splash screen
+
+A splash screen is shown when the program starts, for at least 2 seconds.
+
+| Start | What happens |
+|---|---|
+| Normal start (no parameter, **Add associations on start** off) | splash, then the main window opens |
+| **Add associations on start** on, or a parameter such as `add_gui` | splash while the associations are added, then PFA goes to the tray. The splash time is not extra waiting time. |
+| `add`, `remove`, `multi_open`, `bg_open` | no splash |
+
+To switch the splash screen off, create a text file in the folder of the exe with the name of the exe and the extension `.ini` (e.g. `PortableFileAssociator.ini`) containing:
+
+```ini
+DisableSplash=true
+```
+
+- A section (`[...]`) is not needed, but may be present. The key is found in any section.
+- If the file does not exist, the key is missing or the value is not true, the splash screen is shown. `1`, `yes` and `on` also count as true.
+- If the exe is renamed, the INI name follows the exe name.
+- PFA only reads this file, it never writes it.
+
+---
+
 ## Changelog
+
+### 3.0.0.4
+
+- Added: optional file `PortableFileAssociator.ini` (the exe name + `.ini`, in the folder of the exe) to switch off the splash screen with `DisableSplash=true` (see [Splash screen](#splash-screen)).
+- Fixed: the file properties of the exe (file version, product version, company, copyright ...) are now also set with `#pragma compile` lines, so they show on the Details tab however the script is compiled.
 
 ### 3.0.0.3
 
