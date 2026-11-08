@@ -8,8 +8,8 @@
 #AutoIt3Wrapper_Res_Description=PortableFileAssociator
 #AutoIt3Wrapper_Res_ProductName=PortableFileAssociator
 #AutoIt3Wrapper_Res_CompanyName=ShihabUddinX
-#AutoIt3Wrapper_Res_Fileversion=3.0.0.4
-#AutoIt3Wrapper_Res_ProductVersion=3.0.0.4
+#AutoIt3Wrapper_Res_Fileversion=3.0.0.5
+#AutoIt3Wrapper_Res_ProductVersion=3.0.0.5
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright (c) ShihabUddinX. Original work by Erik Pilsits
 #AutoIt3Wrapper_Res_LegalTrademarks=ShihabUddinX
 #AutoIt3Wrapper_Res_Field=Owner|ShihabUddinX
@@ -23,8 +23,8 @@
 #Obfuscator_Parameters=/sf=1 /sv=1 /om /cs=0 /cn=0
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 ; File properties (Details tab of the exe).  The #pragma lines work with Aut2Exe too, the AutoIt3Wrapper lines above only with SciTE4AutoIt.
-#pragma compile(FileVersion, 3.0.0.4)
-#pragma compile(ProductVersion, 3.0.0.4)
+#pragma compile(FileVersion, 3.0.0.5)
+#pragma compile(ProductVersion, 3.0.0.5)
 #pragma compile(FileDescription, PortableFileAssociator)
 #pragma compile(ProductName, PortableFileAssociator)
 #pragma compile(InternalName, PortableFileAssociator)
@@ -61,11 +61,12 @@ Opt("TrayOnEventMode", 1) ; enable tray events
 Opt("MustDeclareVars", 1) ; must declare variables before use
 Opt("WinTitleMatchMode", 3) ; exact title match
 
-Global Const $version = "3.0.0.4"
+Global Const $version = "3.0.0.5"
 ; update checker (see "Update checker" region)
 Global Const $UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ShihabUddinX/PortableFileAssociator/main/.github/version.pfa"
 Global Const $UPDATE_RELEASE_URL = "https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/"
-Global $oUpdate = 0, $hUpdateTimer = 0, $fUpdateManual = False, $iUpdateComErr = 0, $trayupdate
+Global Const $UPDATE_API_URL = "https://api.github.com/repos/ShihabUddinX/PortableFileAssociator/contents/.github/version.pfa?ref=main"
+Global $oUpdate = 0, $hUpdateTimer = 0, $fUpdateManual = False, $iUpdateComErr = 0, $iUpdateStage = 0, $trayupdate
 
 #Region Commandline
 Global $wndMSG, $wndMSG_msg = -1
@@ -178,23 +179,26 @@ WEnd
 ;=======================================================================================
 
 Func _OperatingMode()
-	Local $arg1 = "", $arg2 = ""
+	Local $arg1 = "", $arg2 = "", $iArg, $iSp
 
-	If $CmdLine[0] > 2 Then ; max commandline args
-		MsgBox(16, "Error", "Too many commandline arguments.")
-		Exit
-	EndIf
 	If $CmdLine[0] = 0 Then
-		; check for INI arguments
-		Local $inicommands = IniRead($profileini, "profile", "commandline", "")
+		; check for INI arguments:  <mode> [profile name]   (the profile name may contain spaces, with or without "quotes")
+		Local $inicommands = StringStripWS(IniRead($profileini, "profile", "commandline", ""), 3)
 		If $inicommands <> "" Then
-			Local $aCmd = StringSplit(StringStripWS($inicommands, 3), " ")
-			$arg1 = $aCmd[1] ; there's at least one argument if $inicommands is not ""
-			If $aCmd[0] > 1 Then $arg2 = $aCmd[2] ; possible profile
+			$iSp = StringInStr($inicommands, " ")
+			If $iSp = 0 Then
+				$arg1 = $inicommands
+			Else
+				$arg1 = StringLeft($inicommands, $iSp - 1)
+				$arg2 = StringStripWS(StringReplace(StringTrimLeft($inicommands, $iSp), '"', ""), 3) ; possible profile
+			EndIf
 		EndIf
-	Else ; commandline args
+	Else ; commandline args:  <mode> [profile name]   (a profile name with spaces can be written with or without "quotes")
 		$arg1 = $CmdLine[1]
-		If $CmdLine[0] > 1 Then $arg2 = $CmdLine[2]
+		For $iArg = 2 To $CmdLine[0]
+			If $arg2 <> "" Then $arg2 &= " "
+			$arg2 &= $CmdLine[$iArg]
+		Next
 	EndIf
 	If $arg1 Then
 		If $arg2 And Not FileExists($settingsdir & "\" & $arg2 & "_assoc.ini") Then
@@ -934,7 +938,7 @@ EndFunc
 
 Func _VerifyProfileName($newname)
 	While 1
-		$newname = StringStripWS(InputBox("Profiles...", "Enter new profile name:", $newname, "", 220, 130, Default, Default, 0, $nGUI), 8)
+		$newname = StringStripWS(InputBox("Profiles...", "Enter new profile name:", $newname, "", 220, 130, Default, Default, 0, $nGUI), 3) ; spaces inside the name are kept
 		If StringRegExp($newname, '[\\/:*?"<>|]') Then
 			MsgBox(48, "Error", "Name cannot contain illegal characters:" & @CRLF & @TAB & '\ / : * ? " < > |', 0, $nGUI)
 		ElseIf FileExists($settingsdir & "\" & $newname & "_assoc.ini") Then
@@ -3351,9 +3355,11 @@ EndFunc
 #Region Update checker
 ;=======================================================================================
 ; Update checker.  Reads the latest version from .github/version.pfa (GitHub, main branch), the file only contains the
-; version number (ie 3.0.0.4).  If it is newer than the running version, a message offers the release page
+; version number (ie 3.0.0.5).  If it is newer than the running version, a message offers the release page
 ;   https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/<version>
-; The request is asynchronous (the program does not wait for the network), the main loop polls it (_UpdatePoll).
+; Source 1 is the GitHub API (changes show up within seconds), source 2 is raw.githubusercontent.com (fallback, GitHub
+; caches that for about 5 minutes).  The request is asynchronous (the program does not wait for the network), the main
+; loop polls it (_UpdatePoll).
 ;=======================================================================================
 Func _UpdateComErr($oErr)
 	$iUpdateComErr = $oErr.number
@@ -3367,56 +3373,80 @@ EndFunc
 Func _UpdateCheckStart($fManual = False)
 	If $fManual Then $fUpdateManual = True ; show "up to date" / error messages too
 	If IsObj($oUpdate) Then Return ; a check is already running
-	$iUpdateComErr = 0
 	ObjEvent("AutoIt.Error", "_UpdateComErr")
+	$iUpdateStage = 1
+	If Not _UpdateSend(1) Then _UpdateFail()
+EndFunc
+
+Func _UpdateSend($iStage)
+	; starts the request of source 1 (GitHub API) or 2 (raw file), True = started
+	Local $sUrl, $sStamp = @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC & @MSEC
+	$iUpdateComErr = 0
 	$oUpdate = ObjCreate("MSXML2.XMLHTTP.6.0")
 	If Not IsObj($oUpdate) Then $oUpdate = ObjCreate("MSXML2.XMLHTTP")
 	If Not IsObj($oUpdate) Then
 		$oUpdate = 0
-		_UpdateFinish(False, "")
-		Return
+		Return False
 	EndIf
-	$oUpdate.open("GET", $UPDATE_VERSION_URL & "?t=" & @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC, True)
-	$oUpdate.setRequestHeader("Cache-Control", "no-cache")
+	If $iStage = 1 Then
+		$sUrl = $UPDATE_API_URL & "&t=" & $sStamp
+	Else
+		$sUrl = $UPDATE_VERSION_URL & "?t=" & $sStamp
+	EndIf
+	$oUpdate.open("GET", $sUrl, True)
+	$oUpdate.setRequestHeader("Cache-Control", "no-cache, no-store")
+	$oUpdate.setRequestHeader("Pragma", "no-cache")
+	$oUpdate.setRequestHeader("User-Agent", "PortableFileAssociator/" & $version)
+	If $iStage = 1 Then $oUpdate.setRequestHeader("Accept", "application/vnd.github.raw+json") ; file content as plain text
 	$oUpdate.send()
 	If $iUpdateComErr Then
 		$oUpdate = 0
-		_UpdateFinish(False, "")
-		Return
+		Return False
 	EndIf
 	$hUpdateTimer = TimerInit()
+	Return True
+EndFunc
+
+Func _UpdateFail()
+	; source 1 failed -> try source 2, otherwise the check failed
+	$oUpdate = 0
+	If $iUpdateStage = 1 Then
+		$iUpdateStage = 2
+		If _UpdateSend(2) Then Return
+	EndIf
+	$iUpdateStage = 0
+	_UpdateFinish(False, "")
 EndFunc
 
 Func _UpdatePoll()
 	If Not IsObj($oUpdate) Then Return
 	Local $iState = $oUpdate.readyState, $iStatus = 0, $sText = ""
 	If $iUpdateComErr Then
-		$oUpdate = 0
-		_UpdateFinish(False, "")
+		_UpdateFail()
 		Return
 	EndIf
 	If $iState <> 4 Then ; not finished yet
-		If TimerDiff($hUpdateTimer) > 15000 Then ; give up after 15 seconds
+		If TimerDiff($hUpdateTimer) > 8000 Then ; give up this source after 8 seconds
 			$oUpdate.abort()
-			$oUpdate = 0
-			_UpdateFinish(False, "")
+			_UpdateFail()
 		EndIf
 		Return
 	EndIf
 	$iStatus = $oUpdate.status
 	If $iStatus = 200 And Not $iUpdateComErr Then $sText = $oUpdate.responseText
-	$oUpdate = 0
 	If $iStatus <> 200 Or $iUpdateComErr Then
-		_UpdateFinish(False, "")
+		_UpdateFail()
 		Return
 	EndIf
 	; the file only contains the version number: first line, no BOM / spaces
 	$sText = StringStripWS(StringReplace($sText, ChrW(0xFEFF), ""), 3)
 	$sText = StringStripWS(StringRegExpReplace($sText, "(?s)[\r\n].*$", ""), 3)
 	If Not StringRegExp($sText, "^\d+(\.\d+){1,3}$") Then
-		_UpdateFinish(False, "")
+		_UpdateFail()
 		Return
 	EndIf
+	$oUpdate = 0
+	$iUpdateStage = 0
 	_UpdateFinish(True, $sText)
 EndFunc
 
