@@ -1,6 +1,8 @@
-# PortableFileAssociator
+# FileAssociatorPortable
 
-**Version 3.0.0.4**
+*(formerly PortableFileAssociator)*
+
+**Version 3.0.0.5**
 
 **Owner / Trademark:** ShihabUddinX · Original work by Erik Pilsits
 
@@ -13,10 +15,8 @@ Take your file associations with you. Open local files with your portable applic
 - [File Types](#file-types)
 - [SendTo](#sendto)
 - [Profile](#profile)
-- [Theme](#theme)
+- [Settings](#settings)
 - [Tray menu](#tray-menu)
-- [Splash screen](#splash-screen)
-- [Update check](#update-check)
 - [System Restore](#system-restore)
 - [Modes of operation](#modes-of-operation)
 - [Known issues / notes](#known-issues--notes)
@@ -34,9 +34,9 @@ Take your file associations with you. Open local files with your portable applic
 | **SendTo** | Opens the SendTo editor. |
 | **Create System Restore Point** | Creates a Windows restore point (see [System Restore](#system-restore)). |
 | **Profile** | Profile selection and profile buttons (see [Profile](#profile)). |
-| **Theme** | System / Light / Dark (see [Theme](#theme)). |
-| **Version** | The version number (e.g. `v3.0.0.4`) is shown at the bottom left of the main window. It is also the file version of `PortableFileAssociator.exe`. |
-| **Owner** | ShihabUddinX (owner and trademark). Also written in the file properties of `PortableFileAssociator.exe` (Company, Legal copyright, Legal trademarks). Original work by Erik Pilsits. |
+| **Settings** (gear icon, bottom right) | Theme, start and exit options, update check, splash screen (see [Settings](#settings)). |
+| **Version** | The version number (e.g. `v3.0.0.5`) is shown at the bottom left of the main window. It is also the file version of `FileAssociatorPortable.exe`. |
+| **Owner** | ShihabUddinX (owner and trademark). Also written in the file properties of `FileAssociatorPortable.exe` (Company, Legal copyright, Legal trademarks). Original work by Erik Pilsits. |
 
 ---
 
@@ -83,7 +83,7 @@ The special targets are tick boxes under **Also add to**. Any combination can be
 - Tick **Run as Admin** to start the command with administrator rights. Windows asks for confirmation (UAC) each time the entry is used.
 - Works for **Files**, **Folders**, **Drives**, **Background** and file extensions. Not used by **Recycle Bin**.
 - The setting applies to every target of the association. Use two associations if you need different behaviour.
-- Admin entries do not start your program directly. They start `PortableFileAssociator.exe` (internal parameters `multi_open_admin` / `bg_open_admin`), which then starts the program elevated. PFA must stay at the same place while associations are active.
+- Admin entries do not start your program directly. They start `FileAssociatorPortable.exe` (internal parameters `multi_open_admin` / `bg_open_admin`), which then starts the program elevated. PFA must stay at the same place while associations are active.
 - Unchecked: the command runs normally.
 
 ### Single file type
@@ -118,7 +118,7 @@ The application path must be surrounded by `"` (double quotes) if it contains sp
 
 How `%%1` works:
 
-- Explorer starts one process per selected item, so PFA registers a small wrapper (`PortableFileAssociator.exe multi_open ...`).
+- Explorer starts one process per selected item, so PFA registers a small wrapper (`FileAssociatorPortable.exe multi_open ...`).
 - The wrapper processes collect their files, and the first one starts your command. It waits about 1.5 seconds for the other files.
 - Files are passed in name order, like Explorer's default sort.
 - Very long selections are split into several runs (about 30000 characters per command line).
@@ -140,7 +140,7 @@ How `%V` works:
 - For **Background**, `%V`, `%1` and `%%1` all mean "this folder".
 - With **Run as Admin**, `%1` commands of Files, Folders and Drives are started the same way (through PFA), and `%V` / `%1` mean "the clicked-on item".
 
-> **Note:** PFA must stay at the same place while associations are active, because `%%1` and Background entries start `PortableFileAssociator.exe`.
+> **Note:** PFA must stay at the same place while associations are active, because `%%1` and Background entries start `FileAssociatorPortable.exe`.
 
 The **Command** box is disabled when only **Folders** and / or **Drives** are ticked (no Files, Recycle Bin, Background or extensions). Then each ticked Folders / Drives box must have its own Folder Command / Drive Command. Otherwise the Command is needed.
 
@@ -180,7 +180,7 @@ Drive Command:  "E:\PortableApps\TerminalPortable\TerminalPortable.exe" -d %1
 | **Save** | Save association changes. Must be done after each change. Asks before overwriting an existing association. |
 | **Delete** | Delete the selected association. The last association cannot be deleted. |
 | **Done** | Close the association dialog. |
-| **?** | Open this Readme. |
+| **?** | Open this Readme in a window. The Readme is built into the program, no Readme file is needed. |
 
 ### INI format
 
@@ -223,7 +223,7 @@ admin=1
 | **Iconfile** | The file to extract the icon from (`.exe`, `.dll` or `.ico`). Used when a host association is not the default action. |
 | **Index** | Index of the embedded icon in a multi-icon resource. Use the arrow buttons or type the index. `.ico` files do not use an index; leave it at `0`. |
 | **Show in New menu in context menu** | Adds the file type to Explorer's right-click → New submenu. |
-| **New menu name** | Name shown under right-click → New. Default: `PFA_<extension> File`. Used only while **Show in New menu** is ticked. Otherwise PFA keeps the original Windows name of the file type, so entries that the host already has in the New menu (e.g. zip, rar) are not renamed to `PFA_...`. |
+| **New menu name** | Name shown under right-click → New. Default: `PFA_<extension> File`. |
 | **Use template file** | New items are created from a template instead of an empty file (see below). |
 | **Save File Type** | Save file type changes. Must be done after each change. |
 | **Done** | Close the dialog. Prompts to apply changes if any were made while the associations are active. |
@@ -276,28 +276,39 @@ Settings are stored per profile in `Data\settings\<profile>_assoc.ini`, `_state.
 | **Rename** | Rename the active profile. |
 | **Remove** | Remove the active profile. This action cannot be undone. |
 
+The last used profile is stored as `active` in `Data\settings\profile.ini`.
+
 The profile buttons are icons (New, Clone, Rename, Remove). They are greyed out and cannot be used while the associations are active.
 
 ---
 
-## Theme
+## Settings
 
-The dropdown at the bottom right of the main window sets the look of all PFA windows.
+Click the **gear icon** at the bottom right of the main window. Every option is saved as soon as it is changed (no Save button). They are stored in `Data\settings\settings.ini` (`[settings]` section), the splash screen option in `FileAssociatorPortable.ini` next to the exe. `Data\settings\profile.ini` only keeps profile data (`[profile] active=<last used profile>`).
 
-| Option | Behavior |
-|---|---|
-| **System** | Follow the Windows app theme (light or dark). |
-| **Light** | Always light. |
-| **Dark** | Always dark: window and title bar, text, inputs, lists, buttons, the tray menu and the profile icons (white instead of black). |
+| Option | Description | Saved as |
+|---|---|---|
+| **Theme** | **System** follows the Windows app theme, **Light** is always light, **Dark** is always dark (window and title bar, text, inputs, lists, buttons, tray menu, icons). | `theme=system \| light \| dark` |
+| **Add associations on start** | The associations of the last active profile are added automatically when PFA is started without command line arguments. | `addassociationonstart=true \| false` |
+| **Remove associations on exit** | The file associations are removed again when PFA is closed (Exit, close button, Windows shutdown). On by default. | `removeonexit=true \| false` |
+| **Check for updates on startup** | Looks for a newer version in the background each time PFA starts (a message only appears when a newer version exists). The tray item **Check for updates** checks at any time. | `checkupdateonstartup=true \| false` |
+| **Start minimized** | On: PFA starts minimized to the tray. Off: the main window is shown. | `startminimized=true \| false` |
+| **Disable splash screen** | No splash screen when PFA starts. | `DisableSplash=true` in `FileAssociatorPortable.ini` |
+| **Close button (X) minimizes to the tray** | The close button hides the window in the tray instead of exiting (use the tray item **Exit** to quit). Off by default. | `closetotray=true \| false` |
 
-The choice is saved in `Data\settings\profile.ini`:
+Values: `true`, `1`, `yes`, `on` = on; `false`, `0` or blank = off.
 
 ```ini
-[profile]
-theme=system
+[settings]
+theme=dark
+addassociationonstart=true
+removeonexit=true
+checkupdateonstartup=true
+startminimized=false
+closetotray=false
 ```
 
-Allowed values: `system`, `light`, `dark`.
+**Update from an older version:** the first time this version starts (no `settings.ini` yet) the old settings are taken over automatically: `theme` and `commandline=add_gui` (-> add associations on start + start minimized, and its profile name) from `profile.ini`, the per-profile *remove on close* state, and `DisableUpdateCheck=true` from `FileAssociatorPortable.ini`. The old `commandline` and `theme` lines are then removed from `profile.ini`.
 
 > **Note:** Windows' own message and file dialogs are not themed. Dark buttons, combo boxes and scroll bars need Windows 10 (1903) or newer; on older systems they stay light.
 
@@ -309,12 +320,11 @@ Left-click the tray icon to show the main window. Right-click it to access these
 
 | Item | Description |
 |---|---|
-| **Check For Update** | Checks now whether a newer version is available (see [Update check](#update-check)). |
-| **Rebuild icon cache on change** | If activated, the icon cache is rebuilt after associations are added or removed, or after icon changes are applied. Disabled by default; enable it if filetypes show incorrect icons. *(NT/2000/XP only)* |
-| **Refresh icons now** | Sends the `SHChangeNotify()` system message. If the option above is active, it also rebuilds the icon cache. On Windows Vista and newer this only sends the message. |
-| **Add associations on start** | If activated, the associations of the **last active profile** are added automatically when PFA is started without command line arguments (the GUI starts minimized to the tray, like `add_gui`). Saved in `Data\settings\profile.ini` as `[profile] commandline=add_gui` (activated) or `commandline=` (not activated). Starting PFA with command line arguments (e.g. `PortableFileAssociator.exe add_gui`) ignores this setting. |
-| **Remove associations on close** | If activated, the file associations are removed when the GUI is closed. |
+| **Refresh icons now** | Sends the `SHChangeNotify()` system message so Explorer refreshes the icons. |
+| **Check for updates** | Checks online if a newer version of PFA is available (needs an internet connection). |
 | **Exit** | Close PFA. |
+
+*Add associations on start* and *Remove associations on exit* are in the [Settings](#settings) window.
 
 ---
 
@@ -328,12 +338,12 @@ Remember, this is a safety measure. Under normal circumstances, adding and remov
 
 ## Modes of operation
 
-If run directly, the program starts the GUI where you can add or remove associations, edit associations, file types and SendTo entries, or create a restore point. Depending on the *remove on close* setting, the file associations are optionally removed when the GUI is closed.
+If run directly, the program starts the GUI where you can add or remove associations, edit associations, file types and SendTo entries, or create a restore point. Depending on the setting **Remove associations on exit**, the file associations are removed when PFA is closed.
 
 You can also run the program from the command line:
 
 ```
-PortableFileAssociator.exe <param1> <param2>
+FileAssociatorPortable.exe <param1> <param2>
 ```
 
 `<param1>` can be one of:
@@ -347,26 +357,17 @@ PortableFileAssociator.exe <param1> <param2>
 `<param2>` is optional and must specify the profile to activate and use. It is ignored if `<param1>` is `remove`. If it is left out, the **last active profile** is used (the profile selected the last time PFA was used, stored as `active` in `Data\Settings\profile.ini`).
 
 ```
-PortableFileAssociator.exe add_gui                  (last active profile)
-PortableFileAssociator.exe add_gui DefaultProfile   (this profile)
+FileAssociatorPortable.exe add_gui                  (last active profile)
+FileAssociatorPortable.exe add_gui DefaultProfile   (this profile)
 ```
 
-The same options can be set in `Data\Settings\profile.ini`. This is useful if your launcher cannot pass command line arguments to program shortcuts. The INI `commandline` is used **only when PFA is started without command line arguments**. Individual arguments should not contain spaces:
-
-```ini
-[profile]
-commandline=add_gui
-```
-
-- With `commandline=add_gui` no profile name is needed: the last active profile is added.
-- A profile name can still be written after `add_gui` (e.g. `commandline=add_gui DefaultProfile`) to always use that profile.
-- The tray menu item **Add associations on start** (see [Tray menu](#tray-menu)) sets this line for you: ticked = `commandline=add_gui`, unticked = `commandline=` (empty).
+Without command line arguments the [Settings](#settings) decide: **Add associations on start** adds the associations of the last active profile, **Start minimized** starts the GUI in the tray. Older versions used `commandline=add_gui` in `Data\Settings\profile.ini` for this; that line is no longer read (it is taken over into the Settings automatically). A launcher that can pass arguments can still use the command line above.
 
 If PFA is already running, one command line parameter is available:
 
 | Value | Action |
 |---|---|
-| `exit` | Close the running instance of PFA. File associations are removed based on the setting *Remove associations on close*. |
+| `exit` | Close the running instance of PFA. File associations are removed based on the setting *Remove associations on exit*. |
 
 > **Internal parameters:** `multi_open` and `bg_open` are used by the context-menu entries created for `%%1` and Background commands. `multi_open_admin` and `bg_open_admin` are the same with **Run as Admin** (elevated start). They are not meant to be started by hand.
 
@@ -374,96 +375,19 @@ If PFA is already running, one command line parameter is available:
 
 ## Known issues / notes
 
+- The program was renamed from PortableFileAssociator to FileAssociatorPortable. The old `PortableFileAssociator.ini` (`DisableSplash` / `DisableUpdateCheck`) is copied to `FileAssociatorPortable.ini` automatically. `Data\settings` and the registry entries (`PortableFileAssoc_<ext>`) keep their names, so profiles and **Remove File Associations** keep working. Entries added by the old exe start the old exe: remove the associations with the old version first (or Remove, then Add once with the new exe).
+- Windows' own default app for an extension (Settings > Default apps, e.g. WinRAR for zip) is left alone unless a PFA default association takes over that extension. In that case the key is renamed, not copied, while the associations are active, so the default app is back after Remove. If Windows refuses the rename, the default app is left untouched (the PFA default may then not take effect).
 - Windows 11 shows these (classic) context-menu entries under **Show more options**.
 - **Single file type** relies on the Windows verb setting `MultiSelectModel=Single`. If an entry still appears with several items selected on your Windows version, leave the option unchecked.
 - Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme.
 - Background entries do not appear in virtual folders such as This PC or Control Panel.
-- **Explorer's New menu:** extensions that already have a Windows / Office / WinRAR entry in the right-click → New menu (e.g. docx, xlsx, pptx, zip, rar, txt) keep it. PFA does **not** replace the file type of such an extension, and only adds the context-menu entries. The file type is replaced only when it is needed: a *Default PFA Association* is selected, *Hide extension*, *Copy Host Associations* or *Show in New menu* is ticked. In that case the original New entry is kept, but it uses the PFA icon of the file type. Extensions without a host New entry (e.g. mp4, iso) are handled as before.
-- **Windows default app (e.g. WinRAR for zip):** PFA leaves it untouched, so it is still the default after **Remove File Associations**. The only exception is an extension with a *Default PFA Association* (double-click action): Windows' default-app choice (`UserChoice`) must be removed for it, and Windows may reset it after removal, so you may have to choose the default app again. Leave *Default PFA Association* at *(no default)* to avoid this.
 - File extension entries are also written to `SystemFileAssociations\.<ext>\shell`, so they show up even when Windows has a default app chosen for the extension (typical for media files such as mp3 and mp4). Use **Remove File Associations** and **Add File Associations** once after updating.
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
 - After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
-
-## Splash screen
-
-A splash screen is shown when the program starts, for at least 2 seconds.
-
-| Start | What happens |
-|---|---|
-| Normal start (no parameter, **Add associations on start** off) | splash, then the main window opens |
-| **Add associations on start** on, or a parameter such as `add_gui` | splash while the associations are added, then PFA goes to the tray. The splash time is not extra waiting time. |
-| `add`, `remove`, `multi_open`, `bg_open` | no splash |
-
-To switch the splash screen off, create a text file in the folder of the exe with the name of the exe and the extension `.ini` (e.g. `PortableFileAssociator.ini`) containing:
-
-```ini
-DisableSplash=true
-```
-
-- A section (`[...]`) is not needed, but may be present. The key is found in any section.
-- If the file does not exist, the key is missing or the value is not true, the splash screen is shown. `1`, `yes` and `on` also count as true.
-- If the exe is renamed, the INI name follows the exe name.
-- PFA only reads this file, it never writes it.
-
-The same file can switch off the update check on start (see [Update check](#update-check)):
-
-```ini
-DisableUpdateCheck=true
-```
-
----
-
-## Update check
-
-PFA checks for a new version:
-
-- **on every start** of the program window (normal start and `add_gui` / **Add associations on start**), in the background. Nothing is shown if there is no newer version or if the check fails (no internet).
-- when you choose **Check For Update** in the tray menu (right-click the tray icon). Then a message is also shown if you are up to date, or if the check failed.
-
-**How it works:** PFA reads the file [`.github/version.pfa`](https://github.com/ShihabUddinX/PortableFileAssociator/blob/main/.github/version.pfa) of the GitHub project (main branch). The file contains only the latest version number, e.g. `3.0.0.4`, and nothing else. If that version is higher than the running version, the message *A new version of PortableFileAssociator is available* is shown:
-
-- **OK** opens the download page `https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/<version>` (e.g. `.../releases/tag/3.0.0.4`).
-- **Cancel** or the close button closes the message.
-
-The check runs in the background, the program does not wait for the network (time limit 15 seconds). Versions are compared number by number, so `3.0.0.10` is newer than `3.0.0.9`.
-
-To switch off the check on start, put `DisableUpdateCheck=true` into `PortableFileAssociator.ini` (see [Splash screen](#splash-screen)). The tray menu item still works.
-
-**For the maintainer:** publish the GitHub release (tag = version number) first, then change the version in `.github/version.pfa`.
-
----
-
-## Changelog
-
-### 3.0.0.4
-
-- Added: optional file `PortableFileAssociator.ini` (the exe name + `.ini`, in the folder of the exe) to switch off the splash screen with `DisableSplash=true` (see [Splash screen](#splash-screen)).
-- Added: update check on every start and **Check For Update** in the tray menu (see [Update check](#update-check)). `DisableUpdateCheck=true` in `PortableFileAssociator.ini` switches the check on start off.
-- Fixed: the file properties of the exe (file version, product version, company, copyright ...) are now also set with `#pragma compile` lines, so they show on the Details tab however the script is compiled.
-
-### 3.0.0.3
-
-- Changed: the splash screen is now also shown when PFA starts with **Add associations on start** (`add_gui`). The associations are added while the splash screen is shown, so the splash time is not extra waiting time. It is shown for at least 2 seconds. Not shown for `add`, `remove` and the context-menu launchers.
-- Changed: the splash screen is a borderless window of its own (more reliable than the old splash function).
-
-### 3.0.0.2
-
-- Fixed: crash (APPCRASH) at start on Windows 7 and other Windows versions older than Windows 10 1903. The dark theme code called functions that only exist in newer Windows.
-- Fixed: the Close button (X) of the Associations, File Types and SendTo windows was missing or did not work. It now works like **Done**.
-- Added: splash screen ("Development Test Release") when the program window is started. It is not shown for `add`, `add_gui`, `remove` and the context-menu launchers. It is embedded in the program (`_SplashData.au3`). *(3.0.0.3: also shown for `add_gui`.)*
-- Fixed: the Windows default app (e.g. WinRAR for zip) is kept when the associations are removed.
-- Fixed: extension entries now also show for files that have a default app chosen (e.g. mp3, mp4).
-- Fixed: PFA no longer breaks the Explorer New menu entries (Word, Excel, PowerPoint, WinRAR ...).
-- Added: Folder Command, Run as Admin, Add associations on start (tray menu), `%%1` fixes.
-- Every changed release gets a new version number.
-
-### 3.0.0.1
-
-- First test release of the changes above (superseded by 3.0.0.2 and 3.0.0.3).
 
 ---
 
 ## Owner / Trademark
 
-PortableFileAssociator is owned by **ShihabUddinX**. ShihabUddinX is a trademark of ShihabUddinX.
+FileAssociatorPortable is owned by **ShihabUddinX**. ShihabUddinX is a trademark of ShihabUddinX.
 Original work by Erik Pilsits.

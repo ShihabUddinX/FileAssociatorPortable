@@ -1,12 +1,12 @@
 #NoTrayIcon
 #Region ;**** Directives created by AutoIt3Wrapper_GUI ****
 #AutoIt3Wrapper_icon=..\..\App\AppInfo\appicon.ico
-#AutoIt3Wrapper_outfile=..\..\PortableFileAssociator.exe
+#AutoIt3Wrapper_outfile=..\..\FileAssociatorPortable.exe
 #AutoIt3Wrapper_Compression=4
 #AutoIt3Wrapper_res_requestedExecutionLevel=asInvoker
 #AutoIt3Wrapper_Res_Comment=Create custom portable file associations and context menus.
-#AutoIt3Wrapper_Res_Description=PortableFileAssociator
-#AutoIt3Wrapper_Res_ProductName=PortableFileAssociator
+#AutoIt3Wrapper_Res_Description=FileAssociatorPortable
+#AutoIt3Wrapper_Res_ProductName=FileAssociatorPortable
 #AutoIt3Wrapper_Res_CompanyName=ShihabUddinX
 #AutoIt3Wrapper_Res_Fileversion=3.0.0.5
 #AutoIt3Wrapper_Res_ProductVersion=3.0.0.5
@@ -14,9 +14,9 @@
 #AutoIt3Wrapper_Res_LegalTrademarks=ShihabUddinX
 #AutoIt3Wrapper_Res_Field=Owner|ShihabUddinX
 #AutoIt3Wrapper_Res_Fileversion_AutoIncrement=n
-#AutoIt3Wrapper_Res_Field=ProductName|PortableFileAssociator
-#AutoIt3Wrapper_Res_Field=InternalName|PortableFileAssociator
-#AutoIt3Wrapper_Res_Field=OriginalFilename|PortableFileAssociator.exe
+#AutoIt3Wrapper_Res_Field=ProductName|FileAssociatorPortable
+#AutoIt3Wrapper_Res_Field=InternalName|FileAssociatorPortable
+#AutoIt3Wrapper_Res_Field=OriginalFilename|FileAssociatorPortable.exe
 #AutoIt3Wrapper_Res_Language=1033
 #AutoIt3Wrapper_AU3Check_Parameters=-q -d -w 1 -w 2 -w 3 -w 4 -w 5 -w 6
 #AutoIt3Wrapper_Run_Obfuscator=y
@@ -25,10 +25,10 @@
 ; File properties (Details tab of the exe).  The #pragma lines work with Aut2Exe too, the AutoIt3Wrapper lines above only with SciTE4AutoIt.
 #pragma compile(FileVersion, 3.0.0.5)
 #pragma compile(ProductVersion, 3.0.0.5)
-#pragma compile(FileDescription, PortableFileAssociator)
-#pragma compile(ProductName, PortableFileAssociator)
-#pragma compile(InternalName, PortableFileAssociator)
-#pragma compile(OriginalFilename, PortableFileAssociator.exe)
+#pragma compile(FileDescription, FileAssociatorPortable)
+#pragma compile(ProductName, FileAssociatorPortable)
+#pragma compile(InternalName, FileAssociatorPortable)
+#pragma compile(OriginalFilename, FileAssociatorPortable.exe)
 #pragma compile(CompanyName, ShihabUddinX)
 #pragma compile(LegalCopyright, Copyright ShihabUddinX. Original work by Erik Pilsits)
 #pragma compile(LegalTrademarks, ShihabUddinX)
@@ -92,7 +92,7 @@ If _CreateMutex() <> 0 Then
 			Case "exit"
 				$wndMSG_msg = 0
 		EndSwitch
-		If $wndMSG_msg <> -1 Then _SendMessage(WinGetHandle("PortableFileAssociator"), $wndMSG, $wndMSG_msg, 0)
+		If $wndMSG_msg <> -1 Then _SendMessage(WinGetHandle("FileAssociatorPortable"), $wndMSG, $wndMSG_msg, 0)
 	EndIf
 	Exit
 EndIf
@@ -105,13 +105,15 @@ Global $state, $iconchange, $rebuild, $onclose, $aMouse
 
 Global $contextGUI, $nGUI, $Button1, $Button2, $Button3, $Button4, $Button6, $Button8
 Global $nProfile, $nNew, $nClone, $nRename, $nRemove
-Global $aProfIcons[4][2], $fGDIP = False ; profile action icon bitmaps: [n][0] = normal, [n][1] = disabled
+Global $aProfIcons[5][2], $fGDIP = False ; action icon bitmaps (profile buttons + Settings): [n][0] = normal, [n][1] = disabled
 Global $iThemeMode = 0, $fDark = False ; theme: 0 = system, 1 = light, 2 = dark
 Global $iBgCol = 0xF0F0F0, $iCtrlCol = 0xFFFFFF, $iTextCol = 0x000000, $iLightBg = 0xF0F0F0
-Global $nTheme
-Global $aMutedLbl[4][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
-Global Const $aProfIconNames[4] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile"]
-Global $refreshnow, $rebuildonchange, $trayexit, $trayonclose, $trayaddonstart
+Global $rdGUI, $rdEdit, $rdClose, $fReadmeLoaded = False ; embedded Readme window
+Global $nSettings, $stGUI, $stTheme, $stAddStart, $stRemoveExit, $stCheckUpd, $stStartMin, $stNoSplash, $stCloseTray, $stDone
+Global $fSetAddStart = False, $fSetRemoveExit = True, $fSetCheckUpd = True, $fSetStartMin = False, $fSetCloseTray = False ; Settings (settings.ini)
+Global $aMutedLbl[5][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
+Global Const $aProfIconNames[5] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile", "Settings"]
+Global $refreshnow, $trayexit
 Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $singleChk, $chkFiles, $chkFolders, $chkDrives, $chkRecycle, $chkBackground, $iDriveCmd, $bBtnDrive, $iFolderCmd, $bBtnFolder, $runAdminChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
 Global $iAssocIcon, $iAssocIconBrowse, $iAssocIconIndex, $iAssocIconPreview
 Global $tGUI, $icondisplay, $ftypelist, $ftypeAssocFilter, $defassoclist, $hideext, $copyhost, $hostoverride, $ftypeicon, $iconbrowse, $iconindex, $indexupdown, $savetypes, $donetypes
@@ -151,6 +153,10 @@ EndIf
 
 ; get current profile and set active (create a default if missing)
 Global Const $profileini = $settingsdir & "\profile.ini"
+Global Const $settingsini = $settingsdir & "\settings.ini"
+_ExeIniMigrateOldName() ; the app used to be called PortableFileAssociator: take over its .ini
+_SettingsMigrate() ; first start of this version: take over the old settings (profile.ini, state ini, exe ini)
+_SettingsLoad()
 Global $curProfile = IniRead($profileini, "profile", "active", "__error__")
 If $curProfile = "__error__" Or Not FileExists($settingsdir & "\" & $curProfile & "_assoc.ini") Then $curProfile = _GetNextProfile()
 Global $associni, $stateini, $typesini, $sendtoini
@@ -160,8 +166,6 @@ FileChangeDir(@ScriptDir) ; set working directory
 
 ; operating mode
 _OperatingMode()
-; if the GUI is running...
-_SetTrayStatus()
 #EndRegion Init
 ; GUI loop
 While 1
@@ -179,20 +183,10 @@ WEnd
 ;=======================================================================================
 
 Func _OperatingMode()
-	Local $arg1 = "", $arg2 = "", $iArg, $iSp
+	Local $arg1 = "", $arg2 = "", $iArg
 
 	If $CmdLine[0] = 0 Then
-		; check for INI arguments:  <mode> [profile name]   (the profile name may contain spaces, with or without "quotes")
-		Local $inicommands = StringStripWS(IniRead($profileini, "profile", "commandline", ""), 3)
-		If $inicommands <> "" Then
-			$iSp = StringInStr($inicommands, " ")
-			If $iSp = 0 Then
-				$arg1 = $inicommands
-			Else
-				$arg1 = StringLeft($inicommands, $iSp - 1)
-				$arg2 = StringStripWS(StringReplace(StringTrimLeft($inicommands, $iSp), '"', ""), 3) ; possible profile
-			EndIf
-		EndIf
+		; no arguments: the Settings decide (Add associations on start, Start minimized)
 	Else ; commandline args:  <mode> [profile name]   (a profile name with spaces can be written with or without "quotes")
 		$arg1 = $CmdLine[1]
 		For $iArg = 2 To $CmdLine[0]
@@ -271,12 +265,8 @@ Func _ReadStateINI()
 		IniWrite($stateini, "state", "refresh", "0")
 		$rebuild = 0
 	EndIf
-	; get OnClose setting, 1 = remove associations on close (default)
-	$onclose = Number(IniRead($stateini, "state", "onclose", "-1"))
-	If $onclose = -1 Then
-		IniWrite($stateini, "state", "onclose", "1")
-		$onclose = 1
-	EndIf
+	; OnClose: global setting "Remove associations on exit" (settings.ini), 1 = remove associations on exit (default)
+	$onclose = Number($fSetRemoveExit)
 EndFunc
 
 Func _PDRIVEToDrive($path)
@@ -538,15 +528,15 @@ EndFunc
 Func _InitAllGUIs($guimode = "")
 	Local $hSplash = 0, $hSplashTimer = 0
 	If $guimode = "" Or $guimode = "add_gui" Then $hSplash = _SplashShow($hSplashTimer) ; splash screen (also while "add on start" adds the associations)
-	If Not _ExeIniFlag("DisableUpdateCheck") Then _UpdateCheckStart(False) ; update check on every start, in the background
+	If $fSetCheckUpd Then _UpdateCheckStart(False) ; update check on start (Settings), in the background
 	_ThemeLoad() ; read theme setting (system / light / dark)
 	TraySetClick(8) ; show menu only on right-click
 	TraySetState(1) ; show tray icon
 
 	If $state = 1 Then
-		TraySetToolTip("PortableFileAssociator (enabled)" & @CRLF & "Profile:  " & $curProfile)
+		TraySetToolTip("FileAssociatorPortable (enabled)" & @CRLF & "Profile:  " & $curProfile)
 	Else
-		TraySetToolTip("PortableFileAssociator (disabled)")
+		TraySetToolTip("FileAssociatorPortable (disabled)")
 	EndIf
 
 	; ===== message GUI for context menu, active but off screen
@@ -554,7 +544,7 @@ Func _InitAllGUIs($guimode = "")
 	GUISetState()
 #Region	===== main GUI & tray
 	; Main window: wider layout with clearer grouping and more comfortable spacing.
-	$nGUI = GUICreate("PortableFileAssociator", 310, 545, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU, $WS_MINIMIZEBOX))
+	$nGUI = GUICreate("FileAssociatorPortable", 310, 545, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU, $WS_MINIMIZEBOX))
 	GUISetFont(9, 400, 0, "Segoe UI", $nGUI)
 
 	; Primary actions
@@ -600,33 +590,24 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetFont(-1, 8.5)
 	GUICtrlSetColor(-1, 0x777777)
 
-	; theme selector
-	GUICtrlCreateLabel("Theme:", 150, 510, 42, 18)
-	$nTheme = GUICtrlCreateCombo("", 196, 506, 98, 24, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
-	GUICtrlSetTip(-1, "System follows the Windows app theme.")
-	GUICtrlSetData($nTheme, "System|Light|Dark", StringUpper(StringLeft(_ThemeModeName(), 1)) & StringTrimLeft(_ThemeModeName(), 1))
+	; settings icon (opens the Settings window: theme, start / exit options, ...)
+	$nSettings = GUICtrlCreatePic("", 262, 498, 32, 32)
+	GUICtrlSetTip(-1, "Settings")
+	GUICtrlSetCursor(-1, 0)
 
 	; GUI events
-	GUISetOnEvent($GUI_EVENT_CLOSE, "_Exit")
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_MainClose") ; exit, or minimize to the tray (Settings)
 	GUISetOnEvent($GUI_EVENT_MINIMIZE, "_HideMainGUI")
 	GUISetOnEvent($GUI_EVENT_RESTORE, "_RestoreMainGUI")
 
 	; tray menu
-	$rebuildonchange = TrayCreateItem("Rebuild icon cache on change")
 	$refreshnow = TrayCreateItem("Refresh icons now")
-	TrayCreateItem("")
-	$trayaddonstart = TrayCreateItem("Add associations on start")
-	$trayonclose = TrayCreateItem("Remove associations on close")
-	TrayCreateItem("")
-	$trayupdate = TrayCreateItem("Check For Update")
+	$trayupdate = TrayCreateItem("Check for updates")
 	TrayCreateItem("")
 	$trayexit = TrayCreateItem("Exit")
 
 	; tray events
 	TraySetOnEvent($TRAY_EVENT_PRIMARYDOWN, "_RestoreMainGUI")
-	TrayItemSetOnEvent($trayaddonstart, "_ToggleAddOnStart")
-	TrayItemSetOnEvent($trayonclose, "_ToggleOnClose")
-	TrayItemSetOnEvent($rebuildonchange, "_ToggleRebuildOnChange")
 	TrayItemSetOnEvent($refreshnow, "_RefreshNow")
 	TrayItemSetOnEvent($trayupdate, "_UpdateCheckManual")
 	TrayItemSetOnEvent($trayexit, "_Exit")
@@ -643,7 +624,7 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($nClone, "_CloneProfile")
 	GUICtrlSetOnEvent($nRename, "_RenameProfile")
 	GUICtrlSetOnEvent($nRemove, "_RemoveProfile")
-	GUICtrlSetOnEvent($nTheme, "_ThemeEvent")
+	GUICtrlSetOnEvent($nSettings, "_SettingsGUI")
 
 	; set button states
 	_ActionButtonsState() ; action buttons
@@ -815,18 +796,65 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($sDone, "_sCloseGUI")
 #EndRegion ===== SendTo GUI
 
+#Region	===== Settings GUI
+	$stGUI = GUICreate("Settings", 360, 340, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	GUISetFont(9, 400, 0, "Segoe UI", $stGUI)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_SettingsClose") ; close button (X) = Done
+	GUICtrlCreateLabel("Theme:", 20, 22, 60, 20)
+	$stTheme = GUICtrlCreateCombo("", 84, 18, 140, 24, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlSetTip(-1, "System follows the Windows app theme.")
+	$stAddStart = GUICtrlCreateCheckbox("Add associations on start", 20, 62, 320, 22)
+	GUICtrlSetTip(-1, "Add the associations of the active profile automatically when PFA starts.")
+	$stRemoveExit = GUICtrlCreateCheckbox("Remove associations on exit", 20, 90, 320, 22)
+	GUICtrlSetTip(-1, "Remove the associations again when PFA is closed.")
+	$stCheckUpd = GUICtrlCreateCheckbox("Check for updates on startup", 20, 118, 320, 22)
+	GUICtrlSetTip(-1, "Look for a newer version in the background each time PFA starts.")
+	$stStartMin = GUICtrlCreateCheckbox("Start minimized (to the tray)", 20, 146, 320, 22)
+	GUICtrlSetTip(-1, "Off: the main window is shown when PFA starts.")
+	$stNoSplash = GUICtrlCreateCheckbox("Disable splash screen", 20, 174, 320, 22)
+	GUICtrlSetTip(-1, "Saved as DisableSplash=true in FileAssociatorPortable.ini (next to the exe).")
+	$stCloseTray = GUICtrlCreateCheckbox("Close button (X) minimizes to the tray", 20, 202, 320, 22)
+	GUICtrlSetTip(-1, "Off: the close button exits PFA.")
+	$aMutedLbl[4][0] = GUICtrlCreateLabel("Settings are saved at once in Data\settings\settings.ini (the splash setting in FileAssociatorPortable.ini, next to the exe). Profiles keep their own files.", 20, 244, 320, 48)
+	$aMutedLbl[4][1] = 0x666666
+	GUICtrlSetFont(-1, 8, 400, 2)
+	GUICtrlSetColor(-1, 0x666666)
+	$stDone = GUICtrlCreateButton("Done", 265, 300, 75, 28)
+	GUICtrlSetOnEvent($stTheme, "_ThemeEvent")
+	GUICtrlSetOnEvent($stAddStart, "_SettingsApply")
+	GUICtrlSetOnEvent($stRemoveExit, "_SettingsApply")
+	GUICtrlSetOnEvent($stCheckUpd, "_SettingsApply")
+	GUICtrlSetOnEvent($stStartMin, "_SettingsApply")
+	GUICtrlSetOnEvent($stNoSplash, "_SettingsApply")
+	GUICtrlSetOnEvent($stCloseTray, "_SettingsApply")
+	GUICtrlSetOnEvent($stDone, "_SettingsClose")
+	_SettingsSync()
+#EndRegion ===== Settings GUI
+#Region	===== Readme GUI
+	; the Readme is built into the program (see _ReadmeText), it is shown in this window, no file is written or opened
+	$rdGUI = GUICreate("Readme", 940, 600, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_ReadmeClose") ; close button (X) = Close
+	$rdEdit = GUICtrlCreateEdit("", 10, 10, 920, 545, BitOR($ES_READONLY, $ES_AUTOVSCROLL, $ES_AUTOHSCROLL, $WS_VSCROLL, $WS_HSCROLL))
+	GUICtrlSetFont(-1, 9, 400, 0, "Consolas")
+	GUICtrlSetLimit(-1, 2000000)
+	$rdClose = GUICtrlCreateButton("Close", 855, 562, 75, 28)
+	GUICtrlSetOnEvent($rdClose, "_ReadmeClose")
+#EndRegion ===== Readme GUI
+
 	_ThemeApply() ; apply light / dark theme to all GUIs
 
 	; populate profile list
 	_PopulateProfiles()
 
 	GUISwitch($nGUI) ; switch to main GUI
-	If $guimode = "add_gui" Then
-		_AddAssociations() ; add the associations while the splash screen is shown (no extra waiting time)
-		_SplashHide($hSplash, $hSplashTimer)
+	; add_gui (command line) = add the associations and start minimized.  Without arguments the Settings decide.
+	Local $fAddNow = ($guimode = "add_gui" Or ($guimode = "" And $fSetAddStart))
+	Local $fMinNow = ($guimode = "add_gui" Or ($guimode = "" And $fSetStartMin))
+	If $fAddNow Then _AddAssociations() ; add the associations while the splash screen is shown (no extra waiting time)
+	_SplashHide($hSplash, $hSplashTimer)
+	If $fMinNow Then
 		GUISetState(@SW_SHOWMINNOACTIVE)
 	Else
-		_SplashHide($hSplash, $hSplashTimer)
 		GUISetState(@SW_SHOW) ; show main GUI
 	EndIf
 EndFunc
@@ -901,10 +929,6 @@ Func _SetProfile($profile = "")
 	; refresh everything
 	_InitTypesINI()
 	_ReadStateINI()
-	; if the GUI is running
-	If WinExists($nGUI) Then
-		_SetTrayStatus()
-	EndIf
 EndFunc
 
 Func _NewProfile()
@@ -981,29 +1005,6 @@ Func _GetNextProfile()
 	Return $profile
 EndFunc
 
-Func _SetTrayStatus()
-		; tray status
-		If _AddOnStartEnabled() Then
-			TrayItemSetState($trayaddonstart, $TRAY_CHECKED)
-		Else
-			TrayItemSetState($trayaddonstart, $TRAY_UNCHECKED)
-		EndIf
-		If $onclose = 1 Then
-			TrayItemSetState($trayonclose, $TRAY_CHECKED)
-		Else
-			TrayItemSetState($trayonclose, $TRAY_UNCHECKED)
-		EndIf
-		If $fVistaOrBetter Then
-			TrayItemSetState($rebuildonchange, $TRAY_DISABLE)
-		Else
-			If $rebuild = 1 Then
-				TrayItemSetState($rebuildonchange, $TRAY_CHECKED)
-			Else
-				TrayItemSetState($rebuildonchange, $TRAY_UNCHECKED)
-			EndIf
-		EndIf
-	EndFunc
-
 Func _ActionButtonsState()
 	If $state = 0 Then
 		GUICtrlSetState($Button1, $GUI_ENABLE)
@@ -1028,64 +1029,24 @@ Func _ActionButtonsState()
 	EndIf
 EndFunc
 
-Func _AddOnStartEnabled()
-	; "Add associations on start" is on when profile.ini [profile] commandline starts with add_gui
-	Local $aCmd = StringSplit(StringStripWS(IniRead($profileini, "profile", "commandline", ""), 3), " ")
-	Return ($aCmd[1] = "add_gui")
-EndFunc
-
-Func _ToggleAddOnStart()
-	; saved in Data\settings\profile.ini:  commandline=add_gui  (on)  /  commandline=  (off)
-	; add_gui uses the last active profile ([profile] active), no profile name needed
-	If _AddOnStartEnabled() Then
-		IniWrite($profileini, "profile", "commandline", "")
-		TrayItemSetState($trayaddonstart, $TRAY_UNCHECKED)
-	Else
-		IniWrite($profileini, "profile", "commandline", "add_gui")
-		TrayItemSetState($trayaddonstart, $TRAY_CHECKED)
-	EndIf
-EndFunc
-
-Func _ToggleOnClose()
-	If $onclose = 1 Then
-		TrayItemSetState($trayonclose, $TRAY_UNCHECKED)
-		$onclose = 0
-		IniWrite($stateini, "state", "onclose", "0")
-	Else
-		TrayItemSetState($trayonclose, $TRAY_CHECKED)
-		$onclose = 1
-		IniWrite($stateini, "state", "onclose", "1")
-	EndIf
-EndFunc
-
-Func _ToggleRebuildOnChange()
-	If $rebuild = 1 Then
-		TrayItemSetState($rebuildonchange, $TRAY_UNCHECKED)
-		$rebuild = 0
-		IniWrite($stateini, "state", "refresh", "0")
-	Else
-		If $fVistaOrBetter Then ; we should never see this message
-			MsgBox(0 + 64, "Error", "This function will not work on Vista+.")
-			Return
-		Else
-			TrayItemSetState($rebuildonchange, $TRAY_CHECKED)
-			$rebuild = 1
-			IniWrite($stateini, "state", "refresh", "1")
-		EndIf
-	EndIf
-EndFunc
-
-
 Func _AddAssociations()
 	_FileAssociations("add")
 	_ActionButtonsState() ; set button states
-	TraySetToolTip("PortableFileAssociator (enabled)" & @CRLF & "Profile:  " & $curProfile) ; set tooltip
+	TraySetToolTip("FileAssociatorPortable (enabled)" & @CRLF & "Profile:  " & $curProfile) ; set tooltip
 EndFunc
 
 Func _RemoveAssociations()
 	_FileAssociations("remove")
 	_ActionButtonsState() ; set button states
-	TraySetToolTip("PortableFileAssociator (disabled)") ; set tooltip
+	TraySetToolTip("FileAssociatorPortable (disabled)") ; set tooltip
+EndFunc
+
+Func _MainClose()
+	If $fSetCloseTray Then
+		_HideMainGUI() ; close button minimizes to the tray (Settings)
+	Else
+		_Exit()
+	EndIf
 EndFunc
 
 Func _HideMainGUI()
@@ -1389,8 +1350,20 @@ Func _DeleteAssocSection()
 	_RefreshAssocGUI()
 EndFunc
 
-Func _AssocHelp() ; help
-	ShellExecute('"' & @ScriptDir & '\App\portablefileassociator\Readme.txt"', "", "", "open")
+Func _AssocHelp() ; help: the Readme is embedded in this program (_ReadmeText), shown in its own window
+	If Not $fReadmeLoaded Then
+		GUICtrlSetData($rdEdit, _ReadmeText())
+		GUICtrlSendMsg($rdEdit, 0xB1, 0, 0) ; EM_SETSEL: nothing selected
+		$fReadmeLoaded = True
+	EndIf
+	GUISetState(@SW_DISABLE, $aGUI)
+	GUISetState(@SW_SHOW, $rdGUI)
+EndFunc
+
+Func _ReadmeClose()
+	GUISetState(@SW_HIDE, $rdGUI)
+	GUISetState(@SW_ENABLE, $aGUI)
+	WinActivate($aGUI)
 EndFunc
 
 Func _BrowseCommand()
@@ -2196,6 +2169,23 @@ Func _RestoreShellNew($sExtension)
 	RegDelete($sExtKey, "_PFA_ShellNewBackup")
 EndFunc
 
+Func _RegRenameKey($sKey, $sNewName)
+	; Renames the last part of an HKCU key, e.g. _RegRenameKey("HKCU\...\FileExts\.zip", ".zip_PFA").
+	; Unlike copy + delete this keeps every subkey, value and last-write time as it is.  Returns True on success.
+	Local $iPos = StringInStr($sKey, "\", 0, -1)
+	If $iPos = 0 Or StringLeft($sKey, 5) <> "HKCU\" Then Return SetError(1, 0, False)
+	Local $sParent = StringMid($sKey, 6, $iPos - 6)
+	Local $sOld = StringTrimLeft($sKey, $iPos)
+	Local $aOpen = DllCall("advapi32.dll", "long", "RegOpenKeyExW", "handle", 0x80000001, "wstr", $sParent, "dword", 0, "dword", 0xF003F, "handle*", 0) ; HKCU, KEY_ALL_ACCESS
+	If @error Or $aOpen[0] <> 0 Then Return SetError(2, 0, False)
+	Local $hParent = $aOpen[5], $iErr = 1
+	Local $aRen = DllCall("advapi32.dll", "long", "RegRenameKey", "handle", $hParent, "wstr", $sOld, "wstr", $sNewName)
+	If Not @error Then $iErr = $aRen[0]
+	DllCall("advapi32.dll", "long", "RegCloseKey", "handle", $hParent)
+	If $iErr <> 0 Then Return SetError(3, $iErr, False)
+	Return True
+EndFunc
+
 Func _WriteFtypeSettings()
 	Local $aExts = IniReadSectionNames($typesini)
 	If IsArray($aExts) Then
@@ -2278,17 +2268,26 @@ Func _WriteFtypeSettings()
 					_RegKeyExists("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew") Then _
 				_RegCopyKey("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew", "HKCU\Software\Classes\." & $aExts[$i] & "\" & $ftype & "\ShellNew")
 			; backup FileExts key
+			Local $sFE = "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]
+			Local $fFeDone = True
 			If $bKeepUC Then
 				; keep Windows' default app (UserChoice) as it is: nothing to back up, nothing to restore on remove
 			ElseIf _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) Then ; key exists
 				; backup
-				_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i], _
-							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA")
-				; don't copy any defaut "Open With..." settings
-				_RegCopyKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA\OpenWithList", _
-							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "\OpenWithList")
-				_RegCopyKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA\OpenWithProgids", _
-							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "\OpenWithProgids")
+				If _RegKeyExists($sFE & "\UserChoice") Or _RegKeyExists($sFE & "\UserChoiceLatest") Then
+					; the PFA default association takes over this extension.  Windows' own default app (UserChoice) is protected by a hash
+					; that includes the key's last write time, so a COPY of it is rejected when it is put back on Remove (the default app,
+					; ie WinRAR for zip, is lost).  The key is therefore RENAMED, its subkeys keep their data and time.
+					; If Windows does not allow the rename, the user's choice is left untouched (the PFA default may then not take effect).
+					$fFeDone = _RegRenameKey($sFE, "." & $aExts[$i] & "_PFA")
+				Else
+					_RegMoveKey($sFE, $sFE & "_PFA")
+				EndIf
+				If $fFeDone Then
+					; don't copy any defaut "Open With..." settings
+					_RegCopyKey($sFE & "_PFA\OpenWithList", $sFE & "\OpenWithList")
+					_RegCopyKey($sFE & "_PFA\OpenWithProgids", $sFE & "\OpenWithProgids")
+				EndIf
 			Else
 				; fake backup
 				RegWrite("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_none")
@@ -2441,9 +2440,11 @@ Func _RemoveFtypeSettings($fFinal = False)
 				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_none")
 			; fake key does not exist, restore backup if it exists
 			ElseIf _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA") Then ; key exists
-				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
-				_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA", _
-							"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
+				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) ; PFA's temporary .ext key
+				; rename the original key back (keeps UserChoice valid), copy only if the rename is not possible
+				If Not _RegRenameKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA", "." & $aExts[$i]) Then _
+						_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA", _
+								"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
 			; else already in original state
 			EndIf
 		Next
@@ -3102,7 +3103,7 @@ Func _BGR($iRGB) ; swap RGB <-> BGR (COLORREF)
 EndFunc
 
 Func _ThemeLoad()
-	Local $s = IniRead($profileini, "profile", "theme", "system"), $aRet, $v, $i
+	Local $s = IniRead($settingsini, "settings", "theme", "system"), $aRet, $v, $i
 	Switch $s
 		Case "light"
 			$iThemeMode = 1
@@ -3128,20 +3129,20 @@ Func _ThemeLoad()
 		$iCtrlCol = 0xFFFFFF
 		$iTextCol = 0x000000
 	EndIf
-	For $i = 0 To 3
+	For $i = 0 To UBound($aMutedLbl) - 1
 		$aMutedLbl[$i][2] = 0xA0A0A0 ; muted label colour in dark mode
 	Next
 EndFunc
 
 Func _ThemeEvent()
 	Local $m = "system"
-	Switch GUICtrlRead($nTheme)
+	Switch GUICtrlRead($stTheme)
 		Case "Light"
 			$m = "light"
 		Case "Dark"
 			$m = "dark"
 	EndSwitch
-	IniWrite($profileini, "profile", "theme", $m)
+	IniWrite($settingsini, "settings", "theme", $m)
 	_ThemeLoad()
 	_ThemeApply()
 EndFunc
@@ -3171,7 +3172,7 @@ EndFunc
 
 Func _ThemeApply($hOnly = 0)
 	; $hOnly = 0: all main GUIs (+ tray/menus, SendTo list, icons); otherwise only the given GUI (e.g. a dialog)
-	Local $aTargets[4] = [$nGUI, $aGUI, $tGUI, $sGUI], $iCount = 4
+	Local $aTargets[6] = [$nGUI, $aGUI, $tGUI, $sGUI, $stGUI, $rdGUI], $iCount = 6
 	Local $sBtn = "", $sEdit = "", $sList = "", $sClassic = ""
 	Local $id, $iMax, $h, $sClass, $iStyle, $iType, $j, $aRet, $bMuted, $iBk, $iVal = 0, $hHdr
 	If $hOnly Then
@@ -3250,7 +3251,7 @@ Func _ThemeApply($hOnly = 0)
 				$iType = BitAND($iStyle, 0x1F)
 				If $iType <= 2 Then ; text labels only (skip icons, bitmaps and frames)
 					$bMuted = False
-					For $j = 0 To 3
+					For $j = 0 To UBound($aMutedLbl) - 1
 						If $aMutedLbl[$j][0] = $id Then $bMuted = True
 					Next
 					If Not $bMuted Then GUICtrlSetColor($id, $iTextCol)
@@ -3260,7 +3261,7 @@ Func _ThemeApply($hOnly = 0)
 
 	If Not $hOnly Then
 		; muted labels
-		For $j = 0 To 3
+		For $j = 0 To UBound($aMutedLbl) - 1
 			If $fDark Then
 				GUICtrlSetColor($aMutedLbl[$j][0], $aMutedLbl[$j][2])
 			Else
@@ -3295,8 +3296,167 @@ Func _ThemeApply($hOnly = 0)
 EndFunc
 #EndRegion Theme (light / dark)
 
+#Region Settings (Data\settings\settings.ini)
+;=======================================================================================
+; Settings window (gear icon).  Saved in Data\settings\settings.ini, section [settings]:
+;     theme=system | light | dark
+;     addassociationonstart=true / false     add the associations when PFA starts (without command line arguments)
+;     removeonexit=true / false              remove the associations when PFA is closed
+;     checkupdateonstartup=true / false      look for a new version in the background when PFA starts
+;     startminimized=true / false            true = start minimized to the tray, false = show the main window
+;     closetotray=true / false               true = the close button (X) minimizes to the tray
+; (true, 1, yes, on = on;  false, 0, blank = off).  Only the splash setting is in <exe name>.ini next to the exe
+; (DisableSplash=true).  profile.ini only keeps profile data ([profile] active=<last profile>).
+;=======================================================================================
+Func _SettingGet($sKey, $bDefault)
+	Local $s = IniRead($settingsini, "settings", $sKey, "__none__")
+	If $s = "__none__" Then Return $bDefault
+	$s = StringLower(StringStripWS($s, 8))
+	Return ($s = "true" Or $s = "1" Or $s = "yes" Or $s = "on")
+EndFunc
+
+Func _SettingSet($sKey, $bOn)
+	If $bOn Then
+		IniWrite($settingsini, "settings", $sKey, "true")
+	Else
+		IniWrite($settingsini, "settings", $sKey, "false")
+	EndIf
+EndFunc
+
+Func _SettingsLoad()
+	$fSetAddStart = _SettingGet("addassociationonstart", False)
+	$fSetRemoveExit = _SettingGet("removeonexit", True)
+	$fSetCheckUpd = _SettingGet("checkupdateonstartup", True)
+	$fSetStartMin = _SettingGet("startminimized", False)
+	$fSetCloseTray = _SettingGet("closetotray", False)
+	$onclose = Number($fSetRemoveExit)
+EndFunc
+
+Func _SettingsMigrate()
+	; First start with settings.ini: take over the settings of older versions so nothing is lost by the update.
+	;   profile.ini  [profile] theme=            -> theme
+	;   profile.ini  [profile] commandline=add_gui [profile]  -> addassociationonstart + startminimized (+ active profile)
+	;   <profile>_state.ini [state] onclose=     -> removeonexit   (it used to be saved per profile)
+	;   <exe name>.ini DisableUpdateCheck=true   -> checkupdateonstartup=false
+	; The old commandline / theme lines are removed from profile.ini.
+	If FileExists($settingsini) Then Return
+	Local $sTheme = IniRead($profileini, "profile", "theme", "system")
+	Local $sCmd = StringStripWS(IniRead($profileini, "profile", "commandline", ""), 3)
+	Local $sProf = IniRead($profileini, "profile", "active", "")
+	Local $bAdd = False, $bMin = False, $bRemove = True, $bUpd = True, $sMode = $sCmd, $sArg = "", $iSp, $iOld
+	If $sCmd <> "" Then
+		$iSp = StringInStr($sCmd, " ")
+		If $iSp > 0 Then
+			$sMode = StringLeft($sCmd, $iSp - 1)
+			$sArg = StringStripWS(StringReplace(StringTrimLeft($sCmd, $iSp), '"', ""), 3)
+		EndIf
+		If $sMode = "add_gui" Then
+			$bAdd = True
+			$bMin = True
+			If $sArg <> "" And FileExists($settingsdir & "\" & $sArg & "_assoc.ini") Then
+				IniWrite($profileini, "profile", "active", $sArg) ; add_gui <profile>: that profile is the active one
+				$sProf = $sArg
+			EndIf
+		EndIf
+	EndIf
+	If $sProf <> "" Then
+		$iOld = Number(IniRead($settingsdir & "\" & $sProf & "_state.ini", "state", "onclose", "-1"))
+		If $iOld = 0 Then $bRemove = False
+	EndIf
+	If _ExeIniFlag("DisableUpdateCheck") Then $bUpd = False
+	If $sTheme <> "light" And $sTheme <> "dark" Then $sTheme = "system"
+	IniWrite($settingsini, "settings", "theme", $sTheme)
+	_SettingSet("addassociationonstart", $bAdd)
+	_SettingSet("removeonexit", $bRemove)
+	_SettingSet("checkupdateonstartup", $bUpd)
+	_SettingSet("startminimized", $bMin)
+	_SettingSet("closetotray", False)
+	IniDelete($profileini, "profile", "commandline")
+	IniDelete($profileini, "profile", "theme")
+EndFunc
+
+Func _SettingsSync()
+	; show the current settings in the Settings window
+	GUICtrlSetData($stTheme, "") ; clear first: GUICtrlSetData adds to the list of a combo
+	GUICtrlSetData($stTheme, "System|Light|Dark", StringUpper(StringLeft(_ThemeModeName(), 1)) & StringTrimLeft(_ThemeModeName(), 1))
+	_AssocSetChk($stAddStart, $fSetAddStart)
+	_AssocSetChk($stRemoveExit, $fSetRemoveExit)
+	_AssocSetChk($stCheckUpd, $fSetCheckUpd)
+	_AssocSetChk($stStartMin, $fSetStartMin)
+	_AssocSetChk($stNoSplash, _ExeIniFlag("DisableSplash"))
+	_AssocSetChk($stCloseTray, $fSetCloseTray)
+EndFunc
+
+Func _SettingsApply()
+	; every tick box is saved as soon as it is clicked
+	$fSetAddStart = _IsChk($stAddStart)
+	$fSetRemoveExit = _IsChk($stRemoveExit)
+	$fSetCheckUpd = _IsChk($stCheckUpd)
+	$fSetStartMin = _IsChk($stStartMin)
+	$fSetCloseTray = _IsChk($stCloseTray)
+	_SettingSet("addassociationonstart", $fSetAddStart)
+	_SettingSet("removeonexit", $fSetRemoveExit)
+	_SettingSet("checkupdateonstartup", $fSetCheckUpd)
+	_SettingSet("startminimized", $fSetStartMin)
+	_SettingSet("closetotray", $fSetCloseTray)
+	$onclose = Number($fSetRemoveExit)
+	If _IsChk($stNoSplash) <> _ExeIniFlag("DisableSplash") Then _ExeIniSet("DisableSplash", _IsChk($stNoSplash))
+EndFunc
+
+Func _SettingsGUI()
+	_SettingsSync()
+	GUISetState(@SW_DISABLE, $nGUI) ; disable main GUI
+	GUISetState(@SW_SHOW, $stGUI)
+EndFunc
+
+Func _SettingsClose()
+	GUISetState(@SW_HIDE, $stGUI)
+	GUISetState(@SW_ENABLE, $nGUI)
+	WinActivate($nGUI)
+EndFunc
+
+Func _ExeIniMigrateOldName()
+	; The program was called PortableFileAssociator before: copy its PortableFileAssociator.ini (DisableSplash,
+	; DisableUpdateCheck) to the new <exe name>.ini once, so these settings are not lost by the rename.
+	Local $sOld = @ScriptDir & "\PortableFileAssociator.ini", $sNew = _ExeIniPath()
+	If FileExists($sOld) And Not FileExists($sNew) And StringLower($sOld) <> StringLower($sNew) Then FileCopy($sOld, $sNew)
+EndFunc
+
+Func _ExeIniPath()
+	; <exe name>.ini in the folder of the exe (ie FileAssociatorPortable.ini), see _ExeIniFlag
+	Return @ScriptDir & "\" & StringRegExpReplace(@ScriptName, "\.[^.]*$", "") & ".ini"
+EndFunc
+
+Func _ExeIniSet($sKey, $bOn)
+	; writes  <key>=true / false  into <exe name>.ini (changes an existing line, otherwise adds it)
+	Local $sIni = _ExeIniPath(), $sTxt = "", $sVal = "false", $iEnc = 0, $hFile
+	If $bOn Then $sVal = "true"
+	If FileExists($sIni) Then
+		$iEnc = FileGetEncoding($sIni)
+		If $iEnc < 0 Then $iEnc = 0
+		$sTxt = FileRead($sIni)
+		If StringRegExp($sTxt, "(?im)^\s*" & $sKey & "\s*=") Then
+			$sTxt = StringRegExpReplace($sTxt, "(?im)^(\s*" & $sKey & "\s*=)[^\r\n]*", "\1" & $sVal)
+		Else
+			If $sTxt <> "" And Not (StringRight($sTxt, 1) = @LF) Then $sTxt &= @CRLF
+			$sTxt &= $sKey & "=" & $sVal & @CRLF
+		EndIf
+	Else
+		If Not $bOn Then Return ; nothing to disable, no file needed
+		$sTxt = "[FileAssociatorPortable]" & @CRLF & $sKey & "=" & $sVal & @CRLF
+	EndIf
+	$hFile = FileOpen($sIni, 2 + $iEnc) ; overwrite, keep the encoding
+	If $hFile = -1 Then
+		MsgBox(48, "Settings", "Could not write " & $sIni)
+		Return
+	EndIf
+	FileWrite($hFile, $sTxt)
+	FileClose($hFile)
+EndFunc
+#EndRegion Settings (Data\settings\settings.ini)
+
 #Region Profile action icons
-; Icons converted from the SVG files: New_Profile.svg, Clone_Profile.svg, Rename_Profile.svg, Remove_Profile.svg
+; Icons converted from the SVG files: New_Profile.svg, Clone_Profile.svg, Rename_Profile.svg, Remove_Profile.svg, Settings.svg
 ; Embedded as 32x32 PNG (base64), no extra files needed. Variants per icon:
 ;   <Name>               black   (light theme)        <Name>_Disabled        grey (light theme, disabled)
 ;   <Name>_Dark          white   (dark theme)         <Name>_Dark_Disabled   grey (dark theme, disabled)
@@ -3308,7 +3468,7 @@ Func _ProfileIconsReload()
 	Local $aOld = $aProfIcons
 	$iBg = BitOR(0xFF000000, $iBgCol) ; blend transparent PNG with the current window colour
 	If $fDark Then $sSuffix = "_Dark"
-	For $i = 0 To 3
+	For $i = 0 To 4
 		For $j = 0 To 1
 			$aProfIcons[$i][$j] = 0
 			$sName = $aProfIconNames[$i] & $sSuffix
@@ -3323,8 +3483,9 @@ Func _ProfileIconsReload()
 		Next
 	Next
 	_ProfileIconsSet($state = 0)
+	If $aProfIcons[4][0] Then GUICtrlSendMsg($nSettings, 0x0172, 0, $aProfIcons[4][0]) ; Settings icon is always enabled
 	; free the previous bitmaps after the controls switched to the new ones
-	For $i = 0 To 3
+	For $i = 0 To 4
 		For $j = 0 To 1
 			If $aOld[$i][$j] Then DllCall("gdi32.dll", "bool", "DeleteObject", "handle", $aOld[$i][$j])
 		Next
@@ -3342,7 +3503,7 @@ EndFunc
 
 Func _ProfileIconsFree()
 	Local $i, $j
-	For $i = 0 To 3
+	For $i = 0 To 4
 		For $j = 0 To 1
 			If $aProfIcons[$i][$j] Then DllCall("gdi32.dll", "bool", "DeleteObject", "handle", $aProfIcons[$i][$j])
 			$aProfIcons[$i][$j] = 0
@@ -3366,7 +3527,7 @@ Func _UpdateComErr($oErr)
 EndFunc
 
 Func _UpdateCheckManual()
-	TrayTip("PortableFileAssociator", "Checking for updates...", 3)
+	TrayTip("FileAssociatorPortable", "Checking for updates...", 3)
 	_UpdateCheckStart(True)
 EndFunc
 
@@ -3396,7 +3557,7 @@ Func _UpdateSend($iStage)
 	$oUpdate.open("GET", $sUrl, True)
 	$oUpdate.setRequestHeader("Cache-Control", "no-cache, no-store")
 	$oUpdate.setRequestHeader("Pragma", "no-cache")
-	$oUpdate.setRequestHeader("User-Agent", "PortableFileAssociator/" & $version)
+	$oUpdate.setRequestHeader("User-Agent", "FileAssociatorPortable/" & $version)
 	If $iStage = 1 Then $oUpdate.setRequestHeader("Accept", "application/vnd.github.raw+json") ; file content as plain text
 	$oUpdate.send()
 	If $iUpdateComErr Then
@@ -3458,7 +3619,7 @@ Func _UpdateFinish($bOK, $sLatest)
 		Return
 	EndIf
 	If _VersionIsNewer($sLatest, $version) Then
-		If 1 = MsgBox(1 + 64 + 262144, "Update available", "A new version of PortableFileAssociator is available." & @CRLF & @CRLF & _
+		If 1 = MsgBox(1 + 64 + 262144, "Update available", "A new version of FileAssociatorPortable is available." & @CRLF & @CRLF & _
 				"Installed version:  " & $version & @CRLF & "Latest version:  " & $sLatest & @CRLF & @CRLF & _
 				"Click OK to open the download page, or Cancel to close.") Then ShellExecute($UPDATE_RELEASE_URL & $sLatest)
 	ElseIf $fManual Then
@@ -3486,9 +3647,9 @@ Func _SplashDisabledByINI()
 EndFunc
 
 Func _ExeIniFlag($sKey)
-	; <exe name>.ini in the folder of the exe (ie PortableFileAssociator.ini), optional, no section needed:
+	; <exe name>.ini in the folder of the exe (ie FileAssociatorPortable.ini), optional, no section needed:
 	;    DisableSplash=true        -> no splash screen
-	;    DisableUpdateCheck=true   -> no update check on start
+	;    DisableUpdateCheck=true   -> only read once, to take it over into Settings > Check for updates on startup
 	; (missing file, missing key or any other value = False; true, 1, yes, on = True)
 	Local $sIni = @ScriptDir & "\" & StringRegExpReplace(@ScriptName, "\.[^.]*$", "") & ".ini"
 	If Not FileExists($sIni) Then Return False
@@ -3510,7 +3671,7 @@ Func _SplashShow(ByRef $hTimer)
 	If $hFile = -1 Then Return 0
 	FileWrite($hFile, $bData)
 	FileClose($hFile)
-	$hGUI = GUICreate("PortableFileAssociator splash", 416, 249, -1, -1, $WS_POPUP, BitOR($WS_EX_TOPMOST, $WS_EX_TOOLWINDOW))
+	$hGUI = GUICreate("FileAssociatorPortable splash", 416, 249, -1, -1, $WS_POPUP, BitOR($WS_EX_TOPMOST, $WS_EX_TOOLWINDOW))
 	$idPic = GUICtrlCreatePic($sFile, 0, 0, 416, 249) ; the image is loaded here, the file is not needed afterwards
 	FileDelete($sFile)
 	If $idPic = 0 Then
@@ -3593,135 +3754,688 @@ Func _ProfileIconData($sName)
 			$s &= "4/iYDWlm2JA/DMNweGpqalxEjlar1XPA1axdsNmu44t1Xo8wDFNjzGN73JK5C1T1VzfsnO/fzgpV"
 			$s &= "3WW3Lb/ThpfrxuwfnQPlZbBdZgUr+BfwE+xdCffNcQG0AAAAAElFTkSuQmCC"
 		Case "Clone_Profile"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACJklEQVR42u3WTYiOURQH8N+M+ajJ"
-			$s &= "jNgIMxYkY8rCZ0RZmjILm5kNKSk72ymJWNhYWUhZiYUYO4WIhRSzGIUphMH42E2GkYkZeW3OW0+3"
-			$s &= "9/G+Y2Ykvadu57nnf++5/3vuOfc+VKUq/4nUzJbjdlzEKAr4GP32wBvxNLCXOIa5M7X4FoyF87R9"
-			$s &= "wdYYtzPBHmLBdBdvxHA4vIkO1IW+EfbhGFeDNwmJMyV8rgv7/koIdIWj12hKsCa8CrwrbOcTAmOo"
-			$s &= "T+b1BHYpa6zNIbAq9DWMJ9g4rsd3R+gPyZhmLK5kp3U59kIZgnMqGFfAZrRGf1PoNnSXI9YZDt6i"
-			$s &= "JcFa8D7w7WG7kBzBaGyuLyeJi+1nXgRu4QVWRBL24lmU3wkswXPcjmhsS+afww/0Y37YFmJ1kL+f"
-			$s &= "RLCkrMFIDvMRrI1xuxLsbuRAKt2B902lHNtwGkMR1qHot2bK9UFcUP04gIYcX39EYCblrxCo/w3W"
-			$s &= "UOJOKfmI1GI9doTuiESah88R7icYwNXQxWRaiYNxRAO4hzsxr6y04ijelSmdtA3jMBZlNnUyg3/D"
-			$s &= "lXhbcuUQvmcmDeJ43AdLM1ndHP3OwAeThXozF9WjEmRPlbq09gY4gbPYMMVz3xhvwWT42RP2fTkR"
-			$s &= "O5I6KO6iZ5oJuDv8PI7+8hwCn9InYCKA+mkSaMpEslgReXnTln2M6jM/FjNZipOVlmthFlo538uy"
-			$s &= "Ebg8ixdTnu+v1f/4qvwz8gsq2dTkDSE67QAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAByklEQVR42u3WTYhOURgH8J+vyIym"
+			$s &= "JhkyhIUaSiyUUPK1sMFGsrBUFlY29hZWs7FhMSkpC9SUopiwUGY1pRBRpHmVhpop34sxbJ6p03Vv"
+			$s &= "73vf3vui3n+dzr3nPvf5/5/znPOcQwcd/KeY8zdId+IOvuIX3uMC+tpBfhzTQZxt77CmSvJV+B5k"
+			$s &= "l+J9AXbgSYzfr1LAmSC5l5P71fgS39c243xuAzYD0Q8HUYpxjMXzhqoEzEQ/r+D7/Oh/VpWC0xH5"
+			$s &= "oxzB65P10V+VgGX4FCTD2BxjB/E6xm8m9ktxJbbpC5xsRd04hB8F2/AllidpGs2xOdGKmdiEq7Hw"
+			$s &= "JvEUZ9GT2GwtEPm4XdVyb4GAt+0S0IOPOQIuNutwEQ5gMApRLRbkTKThFc5l/tmHDwn5SCZNDWE7"
+			$s &= "LicHT1F7nizAFN1RqgfK7oC+iHSW4Btu4RR2BVlX2C6M1tJz/QF2xx4+j6GY6kZ9bcGeKMvdEcA4"
+			$s &= "3uBu+C3Exoj6M1aUDOQontVJ1zSuYV2Rk8NheLsk+ZE6xHn3h8XZg0Sc8dAbTuvhISZwrKTglXG7"
+			$s &= "GskKmMU2XG/A0f4QsKTJevHHDNRwo4STiWQmpkoKqHXu9R38M/gNFDSTCuZAD3YAAAAASUVORK5C"
+			$s &= "YII="
 		Case "Clone_Profile_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADtUlEQVR42u2WTWhcVRTHf+e9hAxo"
-			$s &= "0wkuxDCdLkQaE0RLi1rcWarEKsRFhaIoSWbuC0aijVIQF310UVEX4kNs7ryJC7GCLVi60EK6UYlK"
-			$s &= "NbQqIRShrVadrGxTrEKJc4+bmzIZJ1+mikj+q/vO1z333HP+98Ea1vB/gKrK3/Vd1NFa2wHEIvIg"
-			$s &= "kAUuqeoYEEdRdCZJkpZMJvM10AGcBQ7Nzs6+Njg4eGXVCZTL5fucc8eBdQ3UV1S1O4qicWttj4gc"
-			$s &= "rdF9EwTB/YVC4eJyEggaCZMkaXHOvec3P+Gc66pUKs3OuS5gDLhRRA4lSdJijDkG/FDjfme1Wn25"
-			$s &= "PmaaplustTZNU7NkAplMZgeQB75X1Z6BgYGpOI7/GBgYmFLVR4HzQD6TyewQEQU+nVdWkd3W2ua6"
-			$s &= "PrlVRIyqbl8yARG53S8/iqLo91qd/z7ug3Z6+5/rQqwLw7B9OVfQtEBX62IJAiFAEATq7f9iV61W"
-			$s &= "dWRkZJuI5LzoXp/sBmvtrkUr4Jyb9IF3JknSWtcfrcDDXv+tF2+oCzEzPT1dCcNwj4gcFpHDwB7v"
-			$s &= "s21OJiLvN5yCOI6b2tvbp4DbgJPOub2qekZEOoIgeBW4B/iuUql0dXZ26szMzAWgtuRvGGOeK5VK"
-			$s &= "w0C3l90M3AH8JCJfzFV6sTHcrKonVPWmBj3yi3PugSiKTpVKpceBd2vU42EYPtTf3/9rHafs8qc+"
-			$s &= "UiwWH2OJO6ZQKJwOw3CziBxU1XPAjKqeE5GDwF1RFJ1KkqQFGAYuASeBoWw2u71+8xU34Rz6+vp+"
-			$s &= "BJ5eSD80NHQV2LIaGg+u55tQP/u1aGtrO6aqN9SWvyEVx3Ec5HK5rc65ncBWoBNoA9YDl4GLwJSq"
-			$s &= "TojIh8ViccKTEaOjo5uccy8COVWdAD5X1U+iKLq85FuQpmnOOVcQkX4gt4KDX1DVMlCOomhaVSVN"
-			$s &= "09eBZ73+qqqOhWH4SqFQ+KzhFVhrX1LVsyKyz2c/qaoHnHPdqroxDMNWY4yEYdiqqhu9/ICqTgJ5"
-			$s &= "EdkvIuettXtFRLPZ7PPAHEe0iMgjzrlxa+2bcRzPu3ZJ07RXVd8GZoFDwFvGmK+We/xyuXy3c+4Z"
-			$s &= "YDfQJCJPFYvFd9I07feVqcc+Y8z+axVwzg379RPGmN6VbO7H9UtjzJMi0uvJ5QXPph8v4DIcx/G1"
-			$s &= "6QtEZJN3PLqaCXDOfeCXHXO9sYDp+nw+f0stD8yNTo+19npMY7N/NWdLpdKiNvOIyD8Y/zqaROTI"
-			$s &= "PxV8odjVavW3tV/5Nfxn8CeIVKLpsoAUsAAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAC50lEQVR42u2WT2hcVRTGf+e+0Skx"
+			$s &= "sSi2LopdFKzYLvwHpZaItDXrrlItxSzC+0McyFYUhagbV0oDIbw7mKxa2lRbdKNtsYt021Ub/IdU"
+			$s &= "adAmIM0E24q8zPvcvEBIJslMyICFnM273HO453v3+845F7Zsyx5Gk2SbdVbTB6Vp2m1mHwCvAR1m"
+			$s &= "NgNcBD6Komi2rQC8928D40DQwP1HvV7vHhgY+H0jANx6AWNjY88Avkg+ViqVdkt61DnXDdwEdgVB"
+			$s &= "8EXbbsB7/y7wqZl9H4Zhj5lpCS27zewH4DEz2xNF0W+bfgNm9nwhvAtLkwMkSXIbuA6Q5/m+tlCQ"
+			$s &= "53leLINVQkoFwHpbAJjZVLF8a2hoyC2jZy/wCkAQBFNt0cDo6OjOIAh+BbqKsvu4Xq//GQTBQUmf"
+			$s &= "m9ke4Js4jo8VunjKzD4zsx5JNeBUFEXpcvpaKsNqtXpM0jmg3MD9S5Zlr1cqlZmJiYlgfn7+mqRX"
+			$s &= "l8XEcRxXN0QBQBRFX5vZATM7I2kamJM0ZWafSDpQqVRmAGq12ssNkgO8w1oCahLEDeDkOoJ93LmG"
+			$s &= "//TEhkXYkqDMrgN/NXB9uyERjo+Pb8uy7LCZHQVelPQcsB3oBGpFsi/jOH5/SWW8AZwBdhRbVyT1"
+			$s &= "Jkky3zQA7/0hM4sl9QIda2D8McuyI4saWLSRkZHOcrn8gqS7YRj+tFoFrABQrVafBk5LOlps/QNc"
+			$s &= "lfSdmd3Msuznrq6uv/v6+u4PDw+XAQYHB//dtHHsvb8KHAbuAKecc9UwDO82+0bw3r9kZkck7XPO"
+			$s &= "dQIPgNuSbkm6lCTJnVUBeO/3A1PAPUl7GwWv0SfelPQhsH+NsDrwValUeq+/v//WiiqQ9GyxnGwl"
+			$s &= "eZqmvZLOrpN8cZYcX1hYmEzTtKNRH3ik+D6ZpmnvukPEuckoimbN7ESLtO8CuoHLqzWig2Y20QTn"
+			$s &= "PcBsMSNate0rbsA5Nw2cb/aEPM9nCyCTzrm5FhvW9NbTfsv+N/YfRPAmYSbO3YkAAAAASUVORK5C"
+			$s &= "YII="
 		Case "Clone_Profile_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACXElEQVR42u2WPWhTURTH/7dJWgim"
-			$s &= "oouoiUsRY8DBT5QKjhbs0KVdFEEEN9eCiKKDi5ODCJ1EB9G6CSoWHUTQDhHUgoraarRupbUVRVvp"
-			$s &= "z8Hz5Hl5L3kxKYjkLJdz/+frnnc+ntSiFv0PBLi/1W2rYbgIXAVm+EXTxhcN7wBeSFoE3gCngWXN"
-			$s &= "elU3MEc0fQZ2m1yfhz0BVjbqvAOomMERoASk7bxj9xWTc8A7L4ihCJtbgSHgSJIAes3QWyDrYVlg"
-			$s &= "wvBeu7vsBTAHZDy9AcOuJamBjXbecs59DQPG3za2ZOdHTz8naU2SbKfjklAjwFQCOYBdkvLG77Sz"
-			$s &= "APTX+gQ9lq73QKeHdQKThu+1uyveJ5ixmhmmOi3GZeCupNeS1ksaAQYlvZRUlHRW0lpJryTdA1KS"
-			$s &= "9nj6l5xzP4BRSSvsbpWkTZImJT3yMhiZhc3AVEzkU8AWk9vvYQ+AXIS9fsOH62nHAnABGLe0jhuf"
-			$s &= "D7XrYxtQo8BRoD3GVv0BNHlcL30Afu97WLs/UyTJRQi2SdomaZ+dJSuk5ZJmJU1Lei6pLOmmpLJz"
-			$s &= "DtPdIOmYtV5Z0kNJ951zs0mizwOngA/URxXgBLA62IzAuRD+DbgBdFdzfhz4HlIaA87YPFgXVDWQ"
-			$s &= "M77H8DHP0aDJpYCnEcGetwz/4fyQgfPARWB7nd99h+2CBbNz0O4Px2TspG8geMVAgwV4wOw8M74r"
-			$s &= "JoBPQDqsOG9ApsEAskEmg46oUjeF8DIKHPcBzejGjG3NhSr2fj/W0SSv3sp2wTqMEelyzk0EGbi+"
-			$s &= "hAMwzvaX1q98i/4Z+glO4HhmYYC7kAAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB9UlEQVR42u2WTUhUURTH/1cTww+E"
+			$s &= "CD8Qo1wIGkghQZQQfi3aVBuxFi4FF+3bt2jlxk0bESJooYEQFJWkCxeuBEFFMShiRhhGwqDUWuj8"
+			$s &= "3JyBx2OeznXmScL8N4d37rnn4/7PPe9KJZRwHgG4Yvkq8wjaDXwC9iRlgBTwEmg4i4qHgQNyYwu4"
+			$s &= "GmfwFuCvBZu07wrgLrBi+rk4E3hmQb6EuQeuALu2fi2uHmg3OeOcI7jgnEtIWrLPjrgSyJgsj1i/"
+			$s &= "YPIwrgTWTD4GykIUtEnqCtkVvQfqgd/G8wxww3QPgG+mfxewvwy8tmu6AYwWPDeAh8C/iGu4CTSa"
+			$s &= "XTmwmMNmpBgn0Qm8ARLADrAKPAfqAja3IpJcPqsR3ReRwI+CR3GeWJL0M4f+42krugjcB8ZsECWt"
+			$s &= "ITNGw1fgRWhPP7AdqH42SFO+ge8Ar4A9jsd6tgFD+2tsVLd73QCgwSrNYh94DzwF7gGNQLXZVgKV"
+			$s &= "hXIWnu3zknokpSSNS5pwzu14vBFuSuq1sVwjaV9SQtJ3SZ+dc6njHFy3qv8ATZ6UDQFrJ9B1AEwB"
+			$s &= "rVFOHpnhB8/gg/hhC6gK/0gkqcLkJWAwj9gLzrm0pCeetDdL6pY0G04gi9uSpvNwNCApLan2FL1X"
+			$s &= "l+sEkpLeejhJZ09C0i/PBJKlp30J/w2OANwthw6HSaECAAAAAElFTkSuQmCC"
 		Case "Clone_Profile_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADv0lEQVR42u2WTWhcVRTHf+dlhpmg"
-			$s &= "TZ1xIWraLkQaW0RLixhcCBaVWIW4GKEoSqhkIfPuG6IUxEUfXShGSebNG1IcgqAYFwYsXWghVVCJ"
-			$s &= "38GPEkJR2mr9yCrTNlbzhjTvuLnVcZx8ESsiOZv37jnnnvO/93xdWKd1+p+QXJaN+Xy+Q0R8EbkX"
-			$s &= "uAo4q6pjquqXy+UTruumROQroAM4KSIj8/PzLwwNDV1YM4B8Pn+H4zhHgQ1NxBdEpCsIgvFCodAd"
-			$s &= "x/HhOtnXLS0tdw0ODlZXAsBpxnRdN+U4zuvW+TFV3Z7NZpOquh0YA65U1RHXdVPFYvEI8H3d9lsW"
-			$s &= "Fhaea7RpjNlpjHnJGNO7LADHce4GNgPfRVHUHYbhlO/7F8MwnIqi6EHgNLDZ6inwQYOJvb29vckG"
-			$s &= "3g1AL7B7WQBxHN9kf9+uVCq/1cvs+iiAqm6z7J8aTGxIJpPXrSQEiaaJIaJLARSRFlVFVRfVSyQS"
-			$s &= "WigUOlW13YK93X43eZ6XWxIAMGmV97iu2xaG4WxdfrSp6v02VMctoE1/YgHgXCaT+blarb4I5BrA"
-			$s &= "d6pqp11qUwDZbPadarX6rYjcCIx5nre/VqudSKVSHaraD1wPfJPJZN7N5XItqnpng4lXfN+/aIz5"
-			$s &= "BMhYx9eo6s3Aj8DHlwAsWoau6+4QkWPA1U3EM47j3FMsFr9wXfdhEXmtTjaeTqfv6+/v/6V+g+d5"
-			$s &= "OVV9AxgtlUoPLZmEAGEYfplIJHaIyCHgFHAOOCUih1T1Vus8BfQBZ4FPAZPNZnc3Ol91El6igYGB"
-			$s &= "H4AnlgBZA3aupYc7/+RAaFL7f1AmkzkSRdEV9dfftBX7vu/MzMzschxnj6ruAraJSEZVN4rIeVWt"
-			$s &= "isiUqk6IyFtBEEzYZoTneVtV9WmgXUQmgI/m5uber1Qq55edBa7rtovI48A+oH0VBz8DDDuOM1ws"
-			$s &= "FqcBMcYMAp6V14CxOI6fL5fLHzYNgTHmGRE5CRywzidV9VmgS0S2pNPptlKpJOl0uk1EtgBdVj5p"
-			$s &= "W/bBOI5PG2P2Azo9Pf0kcNz6SAEPOI4zbowp+77/l7CLMaYHeBmYF5ERYCgIgs9XenzXdW8TkTyw"
-			$s &= "F0iIyGNBELzqed4+VR1u1FfVA2EYHqy/gT77/0gQBD2rcW4r4bNSqfSoiPRY1lN2nry3yKDr830/"
-			$s &= "UQ9gK0AURYfXUgFzc3Nv2hN2ANRqtTPN9FR14+zs7LX1fSAJ0Nra2u153prK0M6DpJ2a88aYxfSS"
-			$s &= "f2tEtk3+65QARi+j/dFF3hu/rr/j1+k/Q78DHfiPE52Z8QEAAAAASUVORK5CYII="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADB0lEQVR42u2WTWgVVxTHf2dmfK+8"
+			$s &= "PiuKtSVSF4Haqgu1BbElXfiRdXHxtKUIWZQ0JLyZfCxKpUJaNy6Cb2ZeSNOU6koRP9GNtqUushYK"
+			$s &= "NfQLUTFYTRE/0LZjkrmnmxuIJi95UV9RyH9zh3vOnPPn/M+958I85vGcQv73QEEQNBhjPheR94Ac"
+			$s &= "cENETgJfRFE0UlMCvu/vBA4A7jTma47jNIRheOVxCDizOXR2dr4GDNjk+z3PW5EkScYY0yAiF4Dl"
+			$s &= "qvptzSpQLBY/FZG9wI9xHDcCOkmWFar6C/CiMaa+t7f38lOvgIissuuJyckBoii6Cpy39tU1kQAw"
+			$s &= "AKrqViDo2TWtFYEhu37Q3d39kH9bW9tKVX3bEhyqSQ+0tLQsy2QyF4GFwEnHcb5MkuTPbDa7UVVL"
+			$s &= "QL2qni6Xy+8DdHV1LR0bG9sHNAJ3gCiO468fla/qCvT39/8F7AQeANuMMT9lMpkRVT0F1AN/pGn6"
+			$s &= "CUChUHBHR0dPW/9XgTeBr4Ig+PhJJCCO41MisgE4pKrDwG0rzZ4kSTb09fXdAKirq3tLRN559H9V"
+			$s &= "ba0U26tWqyiKfgY+mslHVV+qYFr8RBWoFkmSnAduTmM681hN2NTU9EI+n98kIltEZB3wBrAIyNsG"
+			$s &= "uwkci+N416SLa6uIHAJetls/JElSGBgYuFs1Ad/33wWagYIdPJXw6/j4+OaJHphAa2tr3nGctZ7n"
+			$s &= "3QrD8LdKJ2AKgSAIXlHVg8AWu/WviJwDzhpjLqRp+nsul7vX09Pzd7FYzAKUy+UHT20c+75/DtgE"
+			$s &= "XFfVyPO8b0ql0q1qY7W3t683xmwGVluZ/gGuquol13W/C8PwekUCHR0da9I0HQLuO46zcjrnGd4K"
+			$s &= "O4wxu0VkzQxuKXDcdd3PSqXSpSmnQFVft5+Dc0xeUNXDsyTHjvPtaZoONjc356bcA6q6wH4uCYKg"
+			$s &= "UEXuwSiKRlT1wznKvjybzTYA31e6iDaq6pHZoqhqIzBiZ8TcJqDjLJpSAWPMsIgcrTaIqk68Awft"
+			$s &= "1Vw1jDHD8+/6eTwz+A/cRSuVzNmpzwAAAABJRU5ErkJggg=="
 		Case "Rename_Profile"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABRElEQVR42u2Xv04CQRDGfxgtiAUV"
-			$s &= "CqGxkJ6GmsSo8AL4UhbGhghvQEhIeAUfAfxXmQg0NCQmRu2wmUsmy63sZW+12S+ZYm/n5vtmd24y"
-			$s &= "BxER27gAFsAmZ5tL7J0IQZ7Ym4uAxDlvpMbd++/7zlPAMdACDoMclUPhvst7r8CpT9ysAi6BT6PY"
-			$s &= "lkDtLwSkkSd2HboI28AEKFr2P0LWQBv4Er+xkOnsp0Ap1BV0FHkPKABdg7wcqgh15gMhPwIe5Nkz"
-			$s &= "UPGtLZujJu8r8pkDubcAfex3Ql7OQO4lwEY+VeTVPD9v0/Fb1rcpmT9KCyakgGRtZp6F3CpgP0OA"
-			$s &= "IdAA6sATcAasgZuUtqtx5duIzBb7Ind+IE1o1xDy6wkULAL0XtfYvwdWwAnQdEhoZIkbJyKrgIXl"
-			$s &= "7n0NmYydppt5oIn4PP71RJj4AWV76H431ah2AAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABuklEQVR42u3Wu2tVQRAG8N/1RawE"
+			$s &= "iUk6sbSwUHsFwQeoSAKmCGpjExR7kVSSf0BBq1QWFqlFiSktkiIKmsTKRhFJwErRKD6uzRxYDufc"
+			$s &= "e27knOp8MCz7mP12dnZmlhYtWmwPV7CCX/iNl7jaFPkDdEvkYd3kU0H0DdPYFzIdY91YUxuWguRW"
+			$s &= "wdzNmFuq8wCZlSMFc8PJ7VTGjgEP8DfanQVzu6L9U+cBXkV7rWAuG1up0wWX4pp/YgaHQmZirIsL"
+			$s &= "dUfCbI8wnG0qF5zHc2xgE4tNWP4/GMZTfMUj7G2S/ABe51y1iKFBNxrDdczFS9/Ej4j795GA7mMi"
+			$s &= "R/6m5L3cqUI6FIXnReSAbh/ZwrnQHcFqj7Vz/chP4kOi8CmUpnAU+7EHu8PHx3AkIV8LvY0C8u+x"
+			$s &= "vhQH8SXJ7RMl2a8Iown5evRv58hP99vkbix+kqTYquTrobsW/U6U6cxFZ6ps9HgbpXUUb0NvNdzQ"
+			$s &= "Sf4PWzhbVkDKxo/Hr6cXPoabTuAw3uEUPkdU3IhoGcdCVWvmK7z4TOZDZzLpd3AvqRsX9bE0j+UB"
+			$s &= "rj6/9nKIIB/HsyYy3mTuZnpa3qJFhn96yp4uwA28CAAAAABJRU5ErkJggg=="
 		Case "Rename_Profile_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACEUlEQVR42u2XT2sTYRDGn5kEjBdP"
-			$s &= "LR7aioKCoIIfQatNexWxx4DJvllDLv0GfgTFy777B/dYSg+tZ6kUz94KRT0Vc9AiFASFwIZ9vGwk"
-			$s &= "LCmmcbcKdi4Ls7P7e2bemX3fBc7sfzfJO8IwXCL5EsB8kSCSPVVtGWNej/p1TGDhcAAQkQWSUd5f"
-			$s &= "HRM7DwDtdluKFBAEAQFcyvv1b/dAtagXhWF4keT1Wq32rtFo/Jj0OS0IvkTyI4Ddfr+/F0XR1VMT"
-			$s &= "4Pt+neQrABcy15U0TXc9z5srXYDv+3UR2QZwPndrrlKprJXaA0EQLAPYBlA7Zuy+l1aBHHwLQL7p"
-			$s &= "9tI0fV6KAGvtyhAuIp4x5iHJx6PwarV6z3Xdb4ULCIJgWVW3ssxDx3G61tpZEXmahbxPkqTebDa/"
-			$s &= "Fj4Fo2UnGRhjXGvtrKruALiRwe92u90vJ0lKT1p2AH673X4Sx/GMqu6IyM1p4RMJsNaujJTdN8Z0"
-			$s &= "4jieGQwGv+AkF6eBTyRAVYcN92IIT5LkDYBbAPZF5I7rup+nHedJluAcADiOs5bLfF9EFo0xh6ey"
-			$s &= "GUVRtEHyNoBrQ3iapke+7z9T1WM/u8aY1UIEkHyUXT8AuE/ySEQ2ADwgWV4FSK7meuKtMebQ87zL"
-			$s &= "qroOYL3UJXBdd3Ocv9PpHAA4+NPd9N87EZHsichCdoYr2j79tgKq2iLZKwneOvsTOrO8/QRpTOEl"
-			$s &= "BA7vwgAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAC8klEQVR42u2WT2gUdxTHP282G3pp"
+			$s &= "4qE1XowgXuqfVuipiBZCb1KqYHJoRRjcmZ1Ii2VPhVYIYuuhILaYrjO/JQFFQQoRQePfaG8KLRVr"
+			$s &= "Wy9eBEmpBHIJGndnfs/Lb2FZzborXS/Ng2Hm9/t9f+/75s1739/Asi3b/93kVTYZY3ar6pfAe87H"
+			$s &= "HeBoGIYnux5AkiTjwL4XOhMpB0GwrxN/XifgOI4/deSPgVFVXaGqK4BR4LGqjjpM29bTUbpEvnCP"
+			$s &= "X4VheLxh6bgxJqeqxxzmdFcyALwLkGXZmeYFa+2ZRky3ArAAnuflmhfSNK1nM+taACLyu7vvee5b"
+			$s &= "9vTU537rWg0AR4BtwMEkSfIicgpAVT8DDjRguteGxphDqvr1Ehn6NgiCb7ouRHEcbxeR/a7gBPgD"
+			$s &= "+CEMw/OvRQlfIeC3ROQEsBU4u7CwUCyVSk9eSwATExNvp2l6rak9r+Xz+Y99319suwjHx8dX9fb2"
+			$s &= "blfVD4DNwGqg37XdHDAL/CoivwRBMNVAPgNsanL3UZqmJeC7lgFMTk6+kabpLlUtAltUdamMDbpr"
+			$s &= "c5Zl0wDlcnllrVabEZGNL9qgqmtbtmGSJB9Wq9WTIrLaTf0DTKvq9Vwudw940NfXtzA/P68uE4NA"
+			$s &= "LYqiu+VyeWUul7sObAD+BQaa3D9R1Z+WrIFKpbLGWnsXeBO4JSLf9/f3nxsZGcnaaNMBVZ1x5H+L"
+			$s &= "yJC11heRw3VyEfkkCIKrSyqhqu515BdmZ2e3BkEw1QF5/c3/EpGhQqHwyPO8QQdZVNUddfJWAaxz"
+			$s &= "99NjY2NpmwI1oKo3gPWq+meWZUOFQuGRMeaYqo4Ci8COYrF45aVSLCI9qoqIvB/Hca0Vsao+jKLo"
+			$s &= "prV2m4i8A9zP5/NDvu/PGWN+dP8Pi9banVEUXe70LCiJtJYKz/N+Bm6KA4rIbd/35yqVylHgc6Bq"
+			$s &= "rR2JouhS24eRqt56GXEjtmk8bIwZdsOnwM4oii52dBqGYXjkPxDBqrV2uBX5si0bwDMc3EEwT7tX"
+			$s &= "5AAAAABJRU5ErkJggg=="
 		Case "Rename_Profile_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABXUlEQVR42u2Xu0oDQRSG/xO0EAur"
-			$s &= "GEMULbS3sRaEGF8gvkAeJ4XYiPoGIgi+go8Qr5VFYmMjCEHtPpsJLMPsJe4ONvt3O5yZ/zJnD7tS"
-			$s &= "jRoegC4woXqMga7PZwEBE0nrkfyNzWwzLwEAIiQbPLfx31feqNBhC9gHlqNEVaBxP93WV2D7z+fO"
-			$s &= "KwA4BL68jn8DOtEFpJDPMIzahEBP0q2kpZSSabQeAHrAtyu9Aaae+xGwEuUKgKME+RlgQN8jb0Zp"
-			$s &= "Qs/5pSNfBR7c2jOwVqq30go98osE+X0eeWkBXuznjrxZlLyUgAzyUYK8XdnrHRDw45ZOA84fgVal"
-			$s &= "EzYgYAbfeWHyLAELc4yIK0m7knYkPUk6kPQBnEjqpG0ys+NSgygwYl+ANrDohlAm8hIIfRHhlJt7"
-			$s &= "7nsld2b2DmxJ2sszZGbXoXPrL6KsJpxI2oiRgqRxkQQGTkQM8kH941PDxy/5Lw4zYQlEOwAAAABJ"
-			$s &= "RU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB0UlEQVR42u2WsWtTURTGv9fGEqdC"
+			$s &= "SZNu4ujg0HS3INQWaikN2CGoS5eguItkkv4DLdipU4cOmaVFMzqkQyq0USeXFpEWnCyahGh+LufB"
+			$s &= "4/GS917lZXofXC73nHvud849757zpBQpUlwDwGOgCfSAP8Ax8GRU5G8YjJ2kyctG9AuoAJM2KiYD"
+			$s &= "KCfpQMNIXgTonpuukaQDbpT5AF3OvZ04Z47F9KFv83iALmPz3yQd+Gjz0wCdK2smmYJVu+YuUAVu"
+			$s &= "26iaDOBh0i9hc8gz3BxVLVgG3gMXwCVQTzzy/3Q4BxwAV8AecHOU5NPAiS9VdSAb96AZYAPYtT5w"
+			$s &= "CXSsNpxZkdoGSj7y0wHfy6sopFlrPB+APuFoA0tmmwdaQ/buhpHPA+ceg+8WfRmYBaaACeCG5bgI"
+			$s &= "3PWQfzK7iwDy30BxGPkt4Kdb24ESMB4xVQUP+Wdbv/SRL4Qd8to2vwUyMb6TgpFiThQAB9jxpOhB"
+			$s &= "lIP247ZWI/tidi1Lg+P5f2gDi4MayCD5HNAL4f7mOE5D0j1JdyR9lXRf0g9J25KeSepIWnMc513U"
+			$s &= "aGpER81s1t21Rb7l6RsrConUj6MYJcK/95ENSepa5IejqHjrvpsZGnmKFC7+AUlSC/RVegBKAAAA"
+			$s &= "AElFTkSuQmCC"
 		Case "Rename_Profile_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACFUlEQVR42u1XwWoTURQ991GSuHFl"
-			$s &= "cdFWFBQEFfwErTbtVkT3ks2IzLzMF/gDAee9wIhR3JbiIu1aKsW1u0KpropZaBEKgk1CkpnjZiJx"
-			$s &= "iBjiTBXM2QyceTPn3Mu9970HzPC/Q9KE1nqF5EsAi1kKkWwppSrGmNejvBqzMHNxABCRJZIv0vzc"
-			$s &= "mLWLAGCtlSwNeJ5HAOfSvPrbNTCX1Y+01mfjOL5cLBbf1Wq140m/UxmJr5D8ICI7vV5v1/f9iydm"
-			$s &= "wHXdMsktAKcT6kIURTu+7y/kbsB13bKIbAI4lXq1EEVRNVcDWutVEdkaIz7Et9wMaK1XSW4CKAFo"
-			$s &= "AjhO9fxut9sNcjHged7aUFxEnlpr74rIg1HxOI5vNRqNr5m3YRJ5E0CJ5HNr7SPHcebjOH4sIgCw"
-			$s &= "3+/3y2EYfsl8DqTS3qjX647jOPOFQmEbwBUA+4PB4GYYhp8zH0RJ2ptJ2p8ZYx66rntGRLYBXJ1W"
-			$s &= "fKIa8DxvLSm0n8SVUj/ElVLL04hPWoTDgrMjkb8heQ3AnojcCILg07TtPImBIgAYY6qpyPdEZNkY"
-			$s &= "c3gim5HneRsArpO8NBTvdDpHWusnJH85dq2197Nqw3vJ871S6na73T4qlUobJO/kmgERSUfwNgiC"
-			$s &= "w2q1ep7kOoD1XA0YY16N44MgOABw8Ke76b93IiLZEpGl5AyXNT7+NgNKqQrJVh7iJCuzm9AMaXwH"
-			$s &= "mEzq7L5bfzMAAAAASUVORK5CYII="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADBElEQVR42u2WT2gcdRTHP29nB3Jw"
+			$s &= "mRJs46UVxEuJfwpCQEorRG8itmA8qEjEQzcbZ0aai1CFIP45CMnO7Kp7DBYLJVDxYP3XRG9psChS"
+			$s &= "/1y8CJJGzSlIMu6f+XqZhbB204y4XsyDYX783vu9953fe+/7BvZlX/7vYv/kUBiGz0h6EbgfMEnf"
+			$s &= "mlk1juPzAwcQBMHbQOWmzszejaKoksdfIeeXP5UF3wKmkiQ5kCTJAWAK2JI0ldnsWYp5jCX52fKl"
+			$s &= "OI4bO1SNIAgcoJ7ZXBjIDQD3ATSbzYu9Ctd1L+60GRSAFGBoaMjpVWxvb3dvszNIAF8DdDqdZ/+W"
+			$s &= "y2Kxu3dtYDUAzAEnzexV3/ddSe9n1f808Eq2nht0G74GnOujfj2O45fz+HPyAlhdXV0eGxu7ZmYH"
+			$s &= "gdvMbAtYMbOwpzMGx4R5ZWZm5vZ2u/2epBPAB47jnJmfn9/+TwD4vn/QzK70tOeVzc3NxxYWFpI9"
+			$s &= "F2GlUrnDdd1HJT0IHDOzw5K8rO02gDXgK0lf1mq1S93ghUJhSdK9Pe4e8TzvLPDGrgAmJyeHPM97"
+			$s &= "QtIZ4Lgk28GKO02PZM8xM7sMUC6XD5nZkqR7+rDqXbu2oe/7DwHnJR3Otm4Al81sOU3TH4vF4s+e"
+			$s &= "5/2xtramUqnkdTqdI+12u1Wv16+Xy+VDrusuA6PAr8BIL28VCoV3+tbA9PT0nY7jXAdKwFVJb62v"
+			$s &= "r3+4uLh4S5YLw3AkTdMlMxsFfjCzceA5SW92g5vZ41EUfd6XCR3HeR4omdlHw8PDJ2q12qW9Bpe0"
+			$s &= "bGajkr43s/Eoin7L0gOQSDrVDd43BWZ2d5bjC7Ozs+09juoRSV8AR4HvWq3Ww41G4/cgCOqSpoDE"
+			$s &= "zE7FcfzZLalYUjF7PxCGYWtXIjH7pVqtrgAngaOSfgLGG43Ghu/7cfb/kACnoyj6NO8sONtT7TcD"
+			$s &= "uwisdDvEzL6J43gjDMOqpBeApqQna7XaJ3mG0dUcXNNrOxEEwUQG/M80TU/X6/WPc03DOI7n/gUS"
+			$s &= "bEqa2C34vuwLwF+SoU6kxrHIiAAAAABJRU5ErkJggg=="
 		Case "Remove_Profile"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAq0lEQVR42u2XsQ2DMBBFn6IUFGxB"
-			$s &= "QRmizEHNBsyRiimYgJI5mCElAyQNHTQuXBAIxjJE+l+65su+/3TX2CBJ21QC40qVPoKaH4K2VjMX"
-			$s &= "dDnzuHND3u7o0Zoe+bcDh0/ABSAFHkBsebHx0hAANdABmeVlxqtDABy+AgEIQAACEIBXXR3uFEAE"
-			$s &= "9JbXAQkwhADoZ7wBeP3lCpZ09/ggvblCVMBnR/AbeOo3Iy1pAtjyTzqf/xYRAAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABg0lEQVR42u3VT0tUYRQG8N9MDkZQ"
+			$s &= "QmALQWxTqyihRat2rtpnqa1EwgQ3+gGqjR+hNrVo2ULSVcsKSQbCVe4FgwgJREUhsblujnAX1zt3"
+			$s &= "ppmB4D7wcl7uc885z/vvHEqUKNEcFzCP7zjB35jPo9qL5MtIzhnL3RYxF4kOMI0rGMBMfEsw200B"
+			$s &= "G5HkWQY3G9y3bgo4iiTXMrjB4A7/JUFfE74Rtprj28jg+nEpJ+4hjosIrMcqFzK4xeDWM7inORc3"
+			$s &= "wcOiO/Aa97CEGt6jgkd4Ef+8yvD7g92cuMdFj6iCtzkredOrYjSJz9iJ8QkTZY3uBCo53BAe4D5u"
+			$s &= "YQSX4+z3sY1NrOEjfnZC0EVM4Uu876TgaMQdmYga0BbG8CMV9Ffc8se4g6vxFGsxHw2x7/A75bcV"
+			$s &= "u9YSrqeay1eMR6Ki6MeT6AsJ9jDcioCX4bjS5F40QxWrEet5UQe4EfZDOLeLRlRLuNlKMzqzt9N1"
+			$s &= "uk3cDVtrRcAZFnpdB/pSXa/TqCtR4n/AKfj9bKzwISPxAAAAAElFTkSuQmCC"
 		Case "Remove_Profile_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABF0lEQVR42u2XPU7DQBCFZ9arFUVu"
-			$s &= "QZE2F3E6oLZs45V8CipOYMn2xheALrmGJUSZhgKhXAAXkaXdRwVFBEhLiMLPvnI08+abmWK1REH/"
-			$s &= "XeyTbIy5BNB8ashc5Hne7gVgjLkBcPatkzLf5nl+vhsXP/YEdV3HQoglgFVRFPOvmDdNs2Tm2Dk3"
-			$s &= "11qv3ss5+gakb0HXdVPn3GQcx3VZlgMRUVVVE6XUVAgxpGm69vHz3oC1dgGgl1LO3qaQcgagt9Yu"
-			$s &= "fP2OfoIAEAACQAAIAL/vNYyi6IKZT5h58xpTSvUATgFsDw6QpulmN5YkyZaIHv7WCaSUT845Yua4"
-			$s &= "bVvs2efRewNZlt0R0TURDXs0fgZwpbW+Dz+goI/0Atg5X47aq8GRAAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACbElEQVR42u1VPWgUQRh973aOeGJQ"
+			$s &= "MNUiaqMQDTYKVunEQkExkggpFO/cXbCIYGG9NvYe6LmbnNeIkoUkCIKNlQFJn6itGLhg4x4xkp/N"
+			$s &= "zmczSjA5s/E8QbwHC7vzfTPf2zcz7wM66OB/B7dLiKLIajQaN0XEJdkLgCLyjmRYr9cf+L6v20Yg"
+			$s &= "iiIrjuOI5MBWcRGZXFhYGGyFRO5XwUaj4ZniSwBKKysre0Vkn4g4AJZIDti27baigNomXjJ/esfz"
+			$s &= "vMcbxsfCMFQAKiRLAB61RQEAvQCgtZ7YxFypCUPuWDsV0IbAJqJJkiiSP3I2olwudymldjdbtKen"
+			$s &= "5+vQ0NBaFgXmACCfzw9vERsGAJKzPwcKhcI1pdTnZk8cxxczKSAiFZKnAdwLwzCfpum4Uopa6ysk"
+			$s &= "fZP2cJNsWq+SjJvuey63lukaighHR0fHABSbpFRd173RViMCgCAIhkm6AL4fuLckQ8dxnnW8vG29"
+			$s &= "oFqt2uvr6+dI9gPoI3lIRLoBCIBFAB9JzgGYzuVyL0ulUr1lArVabVeSJJdJuiLSn/WMGFKvSQbL"
+			$s &= "y8uTIyMjqzsmEIbhGQA1AAfM0CcALwC80lq/V0rNp2n6BQAsy+rWWh8EcBzAWZLnRWS/mfeB5FXH"
+			$s &= "caYzE6hUKocty5oFsAfAGwD3RWTK87wkyyLlcrmrUCgMArglIqcALCql+orF4nwmK7Ys67op/txx"
+			$s &= "nEskZSf7aCR/4vv+U9u2pwBcSNO0COBu1mZ0xBjP1E6Lb4Tv+1pExs3n0czNiKQSEZA8EQTBYEvX"
+			$s &= "ijxpXvO/0w1vmw7316CM9DN/urCIzHRstoN/At8AYmryRZky3y4AAAAASUVORK5CYII="
 		Case "Remove_Profile_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAvElEQVR42u2XPQ6CQBCFvzEWFtzC"
-			$s &= "gpaLUHsDzmHlKTgBJefgAjQWxnAApaB7NltQoIYfg5p5zSYvmzffzhS7Cy7XCEnK9F7ZEoUKLa9i"
-			$s &= "qNbmm9udBvJyRkYZMtJne1bvwHbCqWIgAmoza4MXATHQmlk9Jm9KB3KgApKelwQvHxu2+ggcwAEc"
-			$s &= "wAEc4PduQ+AA7ICm51XAHug+DmBmzYDXAee/G8E1rKkkzaxzmfqmO0m6z3gJ3yQd/UPjeqUHDI7z"
-			$s &= "k6/Cr2oAAAAASUVORK5CYII="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABl0lEQVR42u2VzytEURTHv3eYSKGm"
+			$s &= "WCixYSWUhdXsrGys/BpKyQJl4x/Axp/AZiwsLSasLJGUkhV7RUkSoVHE+9icV7N4njfGTKn3rdN5"
+			$s &= "3fPO93y799xzpRgxYvwAoApYAM6BD+DTvheARCWK5/geubKKAOat0AswDTQAjcCMrQHMllPAmRWZ"
+			$s &= "C4jNWuy0nAJerUhzQKzJYvlSalT/EPfMJ0JyvQBxNZLqQnjzzrn374gLcWE+ExDz184DYlOSHkJs"
+			$s &= "KOoOrEvql7QKJCVtSXKSRiUt2z9rAXlvkh5DeN+j9oADNkKuYbZSwygDHAB3ZvvAeDym/wIuZNtb"
+			$s &= "JA1KSkvqktQmqV4Skp4lXdktOZK055y7+YuzrgUmgEPAIzo865FxmwG/Kj4AXBeQ3gJZYAzoAVJA"
+			$s &= "0iwF9JrYTeC+IO8SSBdbvL3gcTkGRuzeR82vASaBU+N4AlqLEbBiiTuAK+EIE8CucS1FyfFHcYf5"
+			$s &= "beccv+5o5zyblpLUWcxj5PtuYLjEXu4znyxGgI/FSs8BX8BJGbhPFCPGf8AXz0LH0AduVLsAAAAA"
+			$s &= "SUVORK5CYII="
 		Case "Remove_Profile_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABF0lEQVR42u2XO07DQBCG/wUvUKTx"
-			$s &= "GSjSQuVTOF3CDUCy5PE1aL1rWQJRuCXpkltYvkAaCoQiOssiRSRbHhqniWIh5yFe+ze7mpmd+Xam"
-			$s &= "WC1g9N8lugQT0S2Ahy/C7pRSj3sBENEYwPDAl50opUabxpMfOwLf910hxBTATCk12CU5EU0BuMw8"
-			$s &= "0FrPtsV8ewesrgeCIOgzc6+qqnkcx0sA8DyvZ1lWXwixDMNw3iVf5w4w8xOATEp5tbY1+6zx4agA"
-			$s &= "h5YBMAAGwAAYgN/3GtZ1fSOlvMjzfLG2FUWR2bZ9WZbl6ugAURQtNm1JkqwAvPy5Ebw1q0tEvGed"
-			$s &= "1zbHaZsjTdN3x3HOAVwDONux8AeAe631s/kBGbXpE0w8UjLO8EsYAAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACcUlEQVR42u2VT0gUcRTHP29mFqNt"
+			$s &= "KS0Ql6guBZZ0KciLt+hQUGQMgYcyLYNwdqVDh07TxaPQjmUtVpcIDFSKoEunhFA6KnXoEglBB3fB"
+			$s &= "2lh1dl6XMaR2dWzZINovDG/m9/59+fKb96COOv53yEYBtm2bLS0t14A+oDXMeQdkm5qa7riuG9SM"
+			$s &= "gG3bZjKZfKqqnWWTRSYaGxvtakgY6zmTyeTVsPk3Ve1V1e3FYnEHcCU868zlcn3VKGCt5wyCoFdE"
+			$s &= "UNUbnuc9XOMaTaVSFjAiIr3AvZooICKtACsrK+O/+lR1PLQHa6YAEAAYhvEbUdM0rSAIfsasheM4"
+			$s &= "Db7vb61UtLm5ueC67vKGCgBzAJZldZVRoCu0s2WUuxiLxXKVnnw+fyaqAiPAMWDQcZyYaZpjvu+L"
+			$s &= "aZrnVdUN1blbJm8JyFcqqqrLUeeApFKpUaCngv9BJpO5XM0dMDcKmJmZed7e3v4B2AXEge+q+ha4"
+			$s &= "6XneYH2W12wX9Pf3Jw3DOKmqHUCbiOwFEoACi8AnYE5Epkql0svh4eHPVRPo7u7ekkgkzolIH9AR"
+			$s &= "ZVmtXmzgtareByY8z1vaNAHHcY6LyCNgd3j0BXgBvFLV95ZlzRcKha8A8Xg8oap7SqXSIeCEiJwC"
+			$s &= "doZ5H1X1gud5U5EJDAwM7AuCYBbYBrwBbheLxclsNrsSpYjjOA2GYdhAWlWPAouWZbUNDQ3NRxrF"
+			$s &= "qnopbP4sk8mcDSWNjFDyx67rPllYWJgUkdO+7/cAt6Iuo/2hndxs87VwXTcwDGMs/DwQeRmp6upI"
+			$s &= "PpxOp+1qfitVPRK+xv5kG15X1b86B1YJTNeg9jR11PEv4AccSvGnmyVjbQAAAABJRU5ErkJggg=="
+		Case "Settings"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACa0lEQVR42uWXTUtUURjHfxMpjSBh"
+			$s &= "tXFTiS7shTHKNKgPkKHRC1jzDdq0TcFNOG3cRBst6yOkC+kLtIhcBAYVzCiWWouihQWz6ZY2bf7C"
+			$s &= "w/Gec++dsaA6cDjnPud5457/83Lgfx+5OmT2AEOesyfAt9/t9Cmg5pknsyrbXYcD3VrLwBvtjwNH"
+			$s &= "NBeyKNvVgAMPgGHNaeesYQe6gU7P2VGtq4a2orXgkenM4lwOeA5sAo+BPtH7gafmvnuMTMHQ54Gz"
+			$s &= "ovdJx6Z0pgJ9MQZcC8CG9p+Ae0CLkckDE8A78WxIxtVTTDKeB9bEPArcBJaM0tviCYH6FvBDMkvS"
+			$s &= "MaLvtQR5xsS4CDQZnAwGYj9uDGpuYawJqEj3mE+oHaiKaTKFkQPABWBA+6QxKd1V2do2WoBH5r5m"
+			$s &= "gDZP5NwBIsMbASVPVLVJ1xbvfQc/28Y14KuYVx20I+O+TFhyeHukowZ8Bi6mvcMOA8Yrzm+PAg5E"
+			$s &= "znVcEv2t77f7EtEK8EX794Z+GmgOON4M9JrvD1qrwMesqbjWQMV09eeypuIOYJ/2hwz9BfA9YDAS"
+			$s &= "D47sXuBgWq+HHRCeyADC8QAI14GrIcNuGM4GwrAUE4bjgTCcNbzTvjCsJxENAOeB/Sn4p5ISkU3F"
+			$s &= "lZhUXMwAvssxqXgxKRW7xWjEKUY14CHQGpBvBe4CP51iNGowla+nHL805XhdV5R3HJ/SWagcX0/b"
+			$s &= "kMyriZhRIwJwBnhmlBVSNCT99TQkqLns8pzNyZDN60OizXlkunwtmS8RlYFlz9lrrYedxAXwyiOz"
+			$s &= "LGDvSFte1noDOKf9Ma2VP/Ga2tGHyV/5NPu3xi9hrdn3CxzSbwAAAABJRU5ErkJggg=="
+		Case "Settings_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEmElEQVR42u2XXWwUVRTHf2e6NkK7"
+			$s &= "IRgSU0haCUJaEUhVkEQS302AIKGKb8jOzFoxMVWMih+jlqgY+tLYdO4s8GKkCJKAic++GDBN5MMP"
+			$s &= "sBCxmK4xYghhi7rMzvGBWRzW3W1X4UnPy+7cM/d//vd83oH/ukijG/bs2XN7sVhcXU3X3Nz8yaZN"
+			$s &= "m35vBC/VKIEwDBeLyEfVdMVi8X7gy1tKQFU747+nROTreO1eoEtEuholYP2DsHXGRodt2+6xbbsH"
+			$s &= "8JO6f03A9/1O3/cX1PDAPQAi8kNi+Vz8u7QG3gLf9zunRUBVxbKs3SIyZozZn8vlVsQgDxpjPhOR"
+			$s &= "RwGiKBq/nsl/kVljjDmSy+UeAsjlciuMMftFZMyyrN2qKlNWQRAEG1X1wwpSx0RkKdAE/AyMqOrL"
+			$s &= "ruteARgYGJjR2trqARuA+UBJVU+KSPcNxkSesG17b00CMdBpoF1VXxKRSeAZYGEM2j85OfluX1/f"
+			$s &= "b9Xc6Xleqq2trU9EtscJfgYYBGYC7wDnC4VCZ3L/DSFoaWnpA9qBMWCn4ziD+Xy+E1gdRdE613W9"
+			$s &= "WsZjAqHrujuAdcDqfD7f6TjOoKoOqOp3QHts4+8e8H2/TUTGgFZgyHGcp+tlr+/7cyzLWqHXZNR1"
+			$s &= "3Qv13jfGvA/0AgVVXeS67k+VfeCSiIyoagboNcbcGYah3dvbe7HilNa8efPeVNWtqtocx7ZojNmR"
+			$s &= "z+df9zwvSr4/NDQ0O5VKBcD6eOkD4FK9JHxMVX1gFjAeRdHabDZ7IqHvV9VtNQ7a7zjOq+WH4eHh"
+			$s &= "ZZZlHQI6gF+AjOM4h+uWoW3b++LsPQ90NDU1LUi6XVW31vH0C77vz0lk/XygQ1W/V9VllcZrNiLb"
+			$s &= "ts8BFwFKpdL5BOByoLkOgWZVfeA6uGX9GO+7XI55I61YYxDhH4qqWlNN3aoEgiCYD9wRs+9IAI4C"
+			$s &= "xTo2/wjDcDThsfLeWb7vt0+LgDGmR1WPxf1gXFXPlnWu614QkfdqXi5EdmzZsuXX8nOpVDoDjAMd"
+			$s &= "InLcGLO+JgHf92cGQRAA+4BZqnowDMNux3GOJzdMTEy8BvRXeKIoIm9NTEx4yXez2eyJMAy7VfUg"
+			$s &= "MBs44F+TmTelEYnI8iiKNAzD0eTJa4R1SFWfqmxEUgG6TUT647a5xHXdq57nWXPnzn1ERNKVg6RO"
+			$s &= "11sHXM3n8596nhf5vn9bfHlZpKqvuK67fcphBLwIXEkMI4Cgqanpuc2bN1+uZnjXrl3pUqn0BvBs"
+			$s &= "jH0GGFTVFhF5GxgvFApdyXkyrXEMHAeWxOP4IrC3UCg8XwYaGBiYkU6nd6rq43Gsq45jYKPjOCN1"
+			$s &= "qyCTyYwAR4EI+FhVVzqO0y0iq4DPYwO96XS67BXS6fTCOL6zgaOWZT3suu59qroSOABEInLEtu19"
+			$s &= "U15KRUSDIHhSRK5mMpmzie54FFhljDkErFHVu4CTcbl1WJYFcNhxnLWJsv0C2JDL5e4ulUopEdFp"
+			$s &= "3Ypt2z5Vp9a/UtUygWTPp0yoilfP3sxr+anYaDYIglXx2uJYfbpRvIYJiMhpVQXoUtWuauRuKYFU"
+			$s &= "KvVNsVjsqfFp9i3/S4PyJ/b+OMoWcMANAAAAAElFTkSuQmCC"
+		Case "Settings_Dark"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAClUlEQVR42u2Xz0tUURTHzx1GaQQJ"
+			$s &= "y42batDFWDFGpRPUH5DhDP2AqfkP2rRNwU04btxEGzXrT0gX0j/QInIRGPTLUSq1FkULC2bTlPZp"
+			$s &= "cwYul3dv740JQV143HvP+Z7vPe/dc8+5T+RfbyapAbBPRIoe9UNjzLc99Rg4hb+dTMqXbsGHnPYr"
+			$s &= "IvJSx8dFpF+f5SRkqV04cNcYUzbGlEVkztHtzgEgB/R6bI5qv2HJ1rXPe/h6gVzcPTbAE2AHeAAM"
+			$s &= "qbwAPLL2e8CyyVvyJeCsyoeUY0c5TRwHKhHBtQxs6/gTcAfosGwywBTwTjHbauO2yu8WzwCbCh4D"
+			$s &= "bgBrFuktIBOwTwM3gR9qs6YcozrfDNkLMK7AVaBNZSlgBCgmOKoj+qR03gbUlHvcZ9QD1BU0HWOR"
+			$s &= "buACMAx0x8BPK3cd6IkCdAD3rf2aB7oicClgEmhY2AZQbb6xg+9SrmabteMnypGrwFcFb9jRrvrJ"
+			$s &= "QCasOtgB5QD4DJTi7mHWCsbLzmdvBBxo2NsBXFT528jP7ktExph1Efmi0/eWalBE2gO+t4vIaWv+"
+			$s &= "Qfu6MeZj0lRMqxUzgt8kTcVZETmg08OW6qmIfA8s2FCMOLb7gUNx97/sBOGJBEE4EQjCLeBKaGH3"
+			$s &= "GC4EjmE14hhOBI7hgoWdizyGLSaiYeA8cDAGfiaYiJxUXItIxZUEqfhSRCpeDabiiGI06hQjgHtA"
+			$s &= "Z8C+E7gN/HSK0ZgVU5lWyvEzqxxvaV7POI7PqC5Ujq/FvZAs6SViHiio/Azw2CLLx7iQFBJfSNSw"
+			$s &= "H+jz6BZ1oZIlK6ps0WPT57uSpT2peCXg3wsRKYnIEUuW1f65h+/Nn7yWN527DpzT8THta3v+K/U3"
+			$s &= "/Ji8EpGyR/da/reE7ReoyGVYInyHsgAAAABJRU5ErkJggg=="
+		Case "Settings_Dark_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAE70lEQVR42u1WTWxUVRT+zntTOkVh"
+			$s &= "mIkbXbQ0WDIVadMqbU2JrFygAYOEBlgRo43FvjcdCo2KiU8FkZLSzn1TwJIY3AgYIRESl9INgZmm"
+			$s &= "QhAtf5EfF4aoLT9K3/B897jwDnkMM0NHZKU3mWTeufec851zz/nOBf7ri0pVWLNmTTAUCi3Jt3f9"
+			$s &= "+vXDe/bscUqxFygVwMyZM+cx8xf59mbNmvUMgG8fKgBmjhIRAIwBOK3ETwOo9TyvtlQAWqkANE2L"
+			$s &= "KiC7hBBtQog2AJ/49x4YQGdnZ9QwjDkFdJ5Szi7dKSSiiwAgpazLp2AYxpzOzs7oVK+AiOhTImo2"
+			$s &= "TfMgM2+zbTsdi8WamXkrMy9Szi77dC4pxaWmaR6TUq5PJpNHDcNoIqINAF4BkALQCoCLdoFhGKuI"
+			$s &= "6PMc8QkAdQB0AFcB7HMc552hoaFbABCPxys8z7MArABQDcADcApAQ079rLZte29BAMrQGQCVRPQ2"
+			$s &= "M/8BwABQo4xu0nV9a39//2S+dFqWFRgfH18HYLPK7nkANjNPJ6KPAVzRdT3q17+rBjzPWwegEsC5"
+			$s &= "ycnJPiGEHYlEokS0hJmXCSGsQs4VgD+FEL1EtIyIlkQikagQws5kMtsBnAVQqXzcm4Gurq7HpZTn"
+			$s &= "ADwKYIcQ4s1i1dvd3f2Y67pNUkouLy8f6evr+7XYedM0BwGsBfC7pmlzBwYGfr4LQHt7+/RgMJgA"
+			$s &= "8JoSHXBd9/WdO3dO5ESpjY+PfwBgA4BpSnybiHrD4fB7lmVJ//mOjo5wWVnZbgDLlWiX4zjd2frR"
+			$s &= "swdHR0fdVCp1uKWl5QwRvQCgQdf1lU1NTUfS6fTV7Lm6uroPAWz066r/zzuOo6dSqSO+gq7XdX0Y"
+			$s &= "wHMAfiGi1UKI7aOjo25BHkgkEvs9z2sAcAVAFYA5/rSryAuxZI868zcqXa9WNn7UNK0+kUgcmhIR"
+			$s &= "JZPJiwAmlNErWXkmk1ngS3u+Nc113WezH1LKn9Tfm9k7L4WKWUVR8sT0MZp2v6lbiIqrAURUFFVZ"
+			$s &= "eXl5+QiA20V8ZjzPG/FlIKsbisVilVMCYJpmm67rJxQfXNZ1/UJ2T7XatiIAegcHB3/zfZ8HcBlA"
+			$s &= "FTOfjMViy3MVdH8btra27gCwBUCQiA66rvtSMpm85FdYvHjxsOM4OoAWn/5tAB9FIhFreHj4Dten"
+			$s &= "0+mrjY2NnwUCgRoAjQDampubn6ivr/8m2wkPRESZTGaBpmnsed5ITuT3rFgstoOZOwoSkUr/RgCb"
+			$s &= "AJx1HGf+0NCQa1mWNjEx8aKUckbuICnCesuIyA2Hw19bliXb29vLgsHgaQBzAbwrhNh832HEzG8R"
+			$s &= "0S3fMAIz766oqOju7e29mc9xT0/PDMdx3gfQpWyfB2AT0SPMvEXVVK1/nkx1HJ8EMF/d+QSAvbqu"
+			$s &= "r88aisfjFVLKPmZeCSBcaBwDWCWE2Fe0C2zb3gfgOAAJ4AARtQghGph5IREdVQ7WSilrfO1Wo+43"
+			$s &= "DOC4lHKREKKRiFoAfAlAMvMxIcT+qbyIWNO0V4nI7e/vv+ADdhzAQsMwviKipQBmqyghpawiIjDz"
+			$s &= "Idu2X/bRegrAing8/qTruoHc11DBV/HAwMBYEXb7DsBSKeVsn7havRNP5dPxB/JvPMvHiAhE9IZp"
+			$s &= "mguVeJ7KxJlS7QX+Ab9nndSqH3zTb+yhA7hx48b3oVCoLd/etWvXfsD/q8T1F3tELHpTKPx0AAAA"
+			$s &= "AElFTkSuQmCC"
 	EndSwitch
 	Return $s
 EndFunc
 #EndRegion Profile action icons
+
+#Region Embedded Readme
+; The text of Readme.txt, built into the program (shown by the ? button of the Associations window).
+; Nothing is written to a file.  Keep it in sync with Readme.txt when the Readme changes.
+Func _ReadmeText()
+	Local $s = ""
+	$s &= "==========" & @CRLF
+	$s &= "README.TXT" & @CRLF
+	$s &= "==========" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "FileAssociatorPortable  (version 3.0.0.5)   (formerly PortableFileAssociator)" & @CRLF
+	$s &= "Take your file associations with you.  Open local files with your portable applications." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Owner / Trademark:  ShihabUddinX" & @CRLF
+	$s &= "Original work by Erik Pilsits." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Main Window:" & @CRLF
+	$s &= "============" & @CRLF
+	$s &= "Add File Associations    = Writes all enabled associations of the active profile to the registry (HKCU only)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Remove File Associations = Removes them again and restores what was backed up." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Configuration:" & @CRLF
+	$s &= "   Associations = Opens the association editor (context-menu entries)." & @CRLF
+	$s &= "   File Types   = Opens the file type editor (icons, defaults, ""New"" menu)." & @CRLF
+	$s &= "   SendTo       = Opens the SendTo editor." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "System Restore:" & @CRLF
+	$s &= "   Create System Restore Point = Creates a Windows restore point (see ""System Restore"" below)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Profile  = Profile selection and the profile buttons (see ""Profile"" below)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Settings = The gear icon at the bottom right opens the Settings window: theme, start and exit options," & @CRLF
+	$s &= "           update check, splash screen (see ""Settings"" below)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Version  = The version number (ie v3.0.0.5) is shown at the bottom left of the main window.  It is also the" & @CRLF
+	$s &= "           file version of FileAssociatorPortable.exe." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Owner    = ShihabUddinX (owner and trademark).  Also written in the file properties of" & @CRLF
+	$s &= "           FileAssociatorPortable.exe (Company, Legal copyright, Legal trademarks).  Original work by" & @CRLF
+	$s &= "           Erik Pilsits." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Associations:" & @CRLF
+	$s &= "=============" & @CRLF
+	$s &= "Association Name = The name of the association as recorded in the GUI list and INI file." & @CRLF
+	$s &= "                   It cannot include the characters ',' or '*'." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Associated Types = File extensions only, separated by the | (pipe) character, ie txt|log|ini" & @CRLF
+	$s &= "                   (do not include the period [.]).  The extension entry is added to that specific file" & @CRLF
+	$s &= "                   extension.  'exe' and 'com' add an entry to program files without changing their" & @CRLF
+	$s &= "                   normal open action." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "                   This box is disabled while ""Files"" is ticked (see below)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Also add to      = Tick boxes for the special targets:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "                   Files       -> all files, any extension ('*' wildcard)  (HKCU\Software\Classes\*\shell)" & @CRLF
+	$s &= "                                  The Associated Types box is disabled, because Files already covers" & @CRLF
+	$s &= "                                  every file." & @CRLF
+	$s &= "                   Folders     -> all folders (HKCU\Software\Classes\Directory\shell)" & @CRLF
+	$s &= "                                  Folders can have their own optional ""Folder Command""." & @CRLF
+	$s &= "                   Drives      -> all drives (HKCU\Software\Classes\Drive\shell)" & @CRLF
+	$s &= "                                  Drives can have their own optional ""Drive Command""." & @CRLF
+	$s &= "                   Recycle Bin -> the Recycle Bin" & @CRLF
+	$s &= "                   Background  -> the empty space of a folder window and of the Desktop, like" & @CRLF
+	$s &= "                                  ""Open Terminal here""" & @CRLF
+	$s &= "                                  (HKCU\Software\Classes\Directory\Background\shell)" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "                   Any combination can be ticked, together with file extensions." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "                   NOTE:  Older INI files that listed drives, files, folders, recycle or background in the" & @CRLF
+	$s &= "                          Associated Types box are converted automatically when the profile is loaded:" & @CRLF
+	$s &= "                          the word is removed from the box and the matching tick box is set.  If 'files'" & @CRLF
+	$s &= "                          was used, the extension list is dropped (Files covers every file).  An" & @CRLF
+	$s &= "                          association that was only for drives keeps its old command as the Drive Command." & @CRLF
+	$s &= "                          These words can no longer be typed into the Associated Types box." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Single file type = Show the association only when ONE item is selected.  When several items are selected" & @CRLF
+	$s &= "                   the entry is hidden in the context menu.  Works for Files, Folders, Drives and file extensions" & @CRLF
+	$s &= "                   (ie iso).  Unchecked = the entry is shown for single and multiple selection." & @CRLF
+	$s &= "                   (Not used by Recycle Bin and Background.  The setting applies to every" & @CRLF
+	$s &= "                   target of the association; use two associations if you need different behaviour.)" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Run as Admin = Starts the command with administrator rights (Windows asks for confirmation, UAC), for" & @CRLF
+	$s &= "               programs that need admin access.  Unchecked = the command runs normally." & @CRLF
+	$s &= "               Works for Files, Folders, Drives, Background and file extensions.  Not used by Recycle Bin." & @CRLF
+	$s &= "               The setting applies to every target of the association; use two associations if you need" & @CRLF
+	$s &= "               different behaviour." & @CRLF
+	$s &= "               Admin entries do not start your program directly.  They start FileAssociatorPortable.exe" & @CRLF
+	$s &= "               (internal parameters multi_open_admin / bg_open_admin), which then starts the program" & @CRLF
+	$s &= "               elevated.  So PFA must stay at the same place while associations are active." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Title = File Association Name as it will appear in the file's context menu (make sure it is UNIQUE so" & @CRLF
+	$s &= "        it does not conflict with local entries)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Context-menu icon = Optional icon shown next to the entry (.ico, .exe or .dll).  Relative paths are portable." & @CRLF
+	$s &= "Icon index        = Icon number inside a multi-icon file.  Usually 0 for .ico files." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Disabled = Check this box to disable the current association." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Command = Command line to execute.  The application path must be surrounded by "" (double quotes) if it" & @CRLF
+	$s &= "          contains spaces and cannot use environment variables.  Use these tokens (placeholders) for the" & @CRLF
+	$s &= "          clicked-on item(s):" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          %1   = path of the clicked-on file, folder or drive.  Explorer starts one run per selected item." & @CRLF
+	$s &= "                 Example -  ""X:\PortableApps\App Path\app.exe"" ""%1""" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          %%1  = ALL selected items in ONE run, each one in quotes." & @CRLF
+	$s &= "                 Example -  ""X:\FastCopy\FastCopy.exe"" %%1" & @CRLF
+	$s &= "                 With three files selected this runs:  FastCopy.exe ""file1"" ""file2"" ""file3""" & @CRLF
+	$s &= "                 Notes:  Explorer starts one process per selected item, so PFA registers a small" & @CRLF
+	$s &= "                 wrapper (FileAssociatorPortable.exe multi_open ...).  The wrapper processes collect their" & @CRLF
+	$s &= "                 files and the first one starts your command (it waits about 1.5 seconds for the other" & @CRLF
+	$s &= "                 files).  Files are passed in name order, like Explorer's default sort.  Very long" & @CRLF
+	$s &= "                 selections are split into several runs (about 30000 characters per command line)." & @CRLF
+	$s &= "                 %%1 works for Files, Folders, Drives and file extensions.  With Folders or Drives it" & @CRLF
+	$s &= "                 passes all selected folders / drives in one run.  A drive root such as E:\ is passed" & @CRLF
+	$s &= "                 safely (as ""E:\\""), so the closing quote is not swallowed." & @CRLF
+	$s &= "                 The command is started with ShellExecute, so programs that need administrator rights" & @CRLF
+	$s &= "                 (for example FastCopy) show the normal Windows confirmation (UAC) instead of failing" & @CRLF
+	$s &= "                 silently.  Tick ""Run as Admin"" to always start the command elevated." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          %V   = the current folder.  Meant for Background (and also works for folders)." & @CRLF
+	$s &= "                 Example -  ""wt.exe"" -d ""%V""      or      cmd.exe /k cd /d ""%V""" & @CRLF
+	$s &= "                 Notes:  The command is started inside that folder.  A drive root such as C:\ is passed" & @CRLF
+	$s &= "                 safely (as ""C:\\""), so terminals do not fail on the trailing backslash.  For Background" & @CRLF
+	$s &= "                 %V, %1 and %%1 all mean ""this folder""." & @CRLF
+	$s &= "                 When ""Run as Admin"" is ticked, %1 commands of Files, Folders and Drives are started the" & @CRLF
+	$s &= "                 same way (through PFA) and %V / %1 mean ""the clicked-on item""." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          NOTE:  PFA must stay at the same place while associations are active, because %%1 and" & @CRLF
+	$s &= "                 Background entries start FileAssociatorPortable.exe." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          The Command box is disabled when only Folders and / or Drives are ticked (no Files, Recycle Bin," & @CRLF
+	$s &= "          Background or extensions).  Then each ticked Folders / Drives box must have its own Folder" & @CRLF
+	$s &= "          Command / Drive Command.  Otherwise the Command is needed." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Folder Command = Command used for folders.  Enabled only when Folders is ticked." & @CRLF
+	$s &= "                 Use %1 for the folder (one run per folder) or %%1 for all selected folders in one run." & @CRLF
+	$s &= "Drive Command  = Command used for drives.  Enabled only when Drives is ticked." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          If a Folder Command / Drive Command is empty and the association also has other targets" & @CRLF
+	$s &= "          (Files, Recycle Bin, Background or extensions), folders / drives simply use the Command." & @CRLF
+	$s &= "          Fill them in when folders or drives need a different command line." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          Examples -" & @CRLF
+	$s &= "          * Only Folders ticked, Folder Command filled in:  the Command box is disabled and only the" & @CRLF
+	$s &= "            Folder Command is used." & @CRLF
+	$s &= "          * Only Drives ticked, Drive Command filled in:  the Command box is disabled and only the" & @CRLF
+	$s &= "            Drive Command is used." & @CRLF
+	$s &= "          * Only Folders ticked, Folder Command empty:  Save shows an error, a Folder Command is needed." & @CRLF
+	$s &= "          * Folders + Drives + Background ticked:  Command is used for Background; folders and drives" & @CRLF
+	$s &= "            use their own command if one is entered, otherwise the Command." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          A drive path such as E:\ ends with a backslash, so write %1 or %V WITHOUT quotes in the" & @CRLF
+	$s &= "          Drive Command:  ""..."" would turn  ""E:\""  into an escaped quote and many programs fail." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "          Example (the same portable terminal for folders, background and drives) -" & @CRLF
+	$s &= "          Command       = ""E:\PortableApps\TerminalPortable\TerminalPortable.exe"" -d ""%1""" & @CRLF
+	$s &= "          Drive Command = ""E:\PortableApps\TerminalPortable\TerminalPortable.exe"" -d %1" & @CRLF
+	$s &= "                          (or  ... -d %V )" & @CRLF
+	$s &= "          Folder Command = ""E:\PortableApps\TerminalPortable\TerminalPortable.exe"" -d ""%1""" & @CRLF
+	$s &= "" & @CRLF
+	$s &= """..."" (next to each command box) = Browse for the program.  Inserts ""%V"" in the Command when Background" & @CRLF
+	$s &= "                          is the only target, ""%1"" otherwise.  In the Folder Command it inserts ""%1""." & @CRLF
+	$s &= "                          In the Drive Command it inserts %1." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Clear = Clear all fields." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Save = Save any association changes.  Must be done after each change.  Asks before overwriting an" & @CRLF
+	$s &= "       existing association." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Delete = Delete selected association.  The last association cannot be deleted." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Done = Closes the association dialog." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "? = Opens this Readme in a window.  The Readme is built into the program, no Readme file is needed." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Associations are stored in Data\settings\<profile>_assoc.ini, one section per association:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "    [My Association]" & @CRLF
+	$s &= "    mode=iso|img" & @CRLF
+	$s &= "    files=1" & @CRLF
+	$s &= "    folders=1" & @CRLF
+	$s &= "    drives=1" & @CRLF
+	$s &= "    recycle=1" & @CRLF
+	$s &= "    background=1" & @CRLF
+	$s &= "    title=Open with MyApp" & @CRLF
+	$s &= "    command='""..\MyApp\MyApp.exe"" ""%1""'" & @CRLF
+	$s &= "    foldercommand='""..\MyApp\MyApp.exe"" ""%1""'" & @CRLF
+	$s &= "    drivecommand='""..\MyApp\MyApp.exe"" %1'" & @CRLF
+	$s &= "    icon=..." & @CRLF
+	$s &= "    disabled=4" & @CRLF
+	$s &= "    single=1" & @CRLF
+	$s &= "    admin=1" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "'mode' holds the file extensions only.  The keys files, folders, drives, recycle, background, single and" & @CRLF
+	$s &= "admin are only present when the tick box is checked (=1).  'foldercommand' and 'drivecommand' are only" & @CRLF
+	$s &= "present when a Folder Command / Drive Command is set." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "NOTE:  Older INI files where a folders-only association kept its command in 'command' are converted" & @CRLF
+	$s &= "       automatically when the profile is loaded: the command becomes the 'foldercommand'.  If Drives was" & @CRLF
+	$s &= "       ticked as well and there is no Drive Command, the same command is used as 'drivecommand'." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "File Types:" & @CRLF
+	$s &= "===========" & @CRLF
+	$s &= "Association = Filter the list of file types by association name.  Choose All to show every extension." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "File Type = Selected file type." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Default PFA Association = Default PFA association for the selected extension (dbl-click action)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Hide Extension = Prevent the selected extension from being displayed in Explorer." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Copy Host Associations = Copy the file type associations already present on the host computer for the" & @CRLF
+	$s &= "                         selected extension." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Host Precedence = If host default association exists, it will take precedence over the PFA default." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Iconfile = The file to extract the icon from.  This can be an .exe, .dll, or .ico file.  Used when a" & @CRLF
+	$s &= "           Host computer association is not the default action." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Index = The index of the embedded icon in a multi-icon resource.  Locate the desired icon with the arrow" & @CRLF
+	$s &= "        buttons or type the index in the input box.  .ico files do not use an index, leave it set to 0." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "        NOTE:  The index in the dialog will not exactly match the index used by Windows, however the" & @CRLF
+	$s &= "               correct Windows index will be saved and written to the registry." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Show in New menu in context menu = Adds the file type to Explorer's right-click > New submenu." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "New menu name = Name shown under right-click > New.  Default: PFA_<extension> File." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Use template file = New items are created from a template instead of an empty file.  PFA looks for the" & @CRLF
+	$s &= "                    exact filename  Data\newitems\<EXTENSION IN CAPITALS>.<extension>  (ie Data\newitems\TXT.txt)." & @CRLF
+	$s &= "                    A message appears if the file is missing.  The host's own ""New"" entry for the extension" & @CRLF
+	$s &= "                    is backed up and restored when the associations are removed." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Save File Type = Save any file type changes.  Must be done after each change." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Done = Closes the file type edit dialog, and prompts to apply changes if any have been made while the" & @CRLF
+	$s &= "       associations are active." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "For new file extensions, the icon will initially be set to the first association defined in the INI file" & @CRLF
+	$s &= "which is associated with the extension." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "When selecting a host default, PFA first looks to see if one is explicitly defined.  If so this association" & @CRLF
+	$s &= "is used.  If not, PFA searches for a registry verb named 'open' and uses this association." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "PFA's behavior when applying the default association and icon depends on several factors:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "1)  A PFA default association is selected:" & @CRLF
+	$s &= "a)  Host Precedence is selected:  If a host default association exists it will be set as the default and the" & @CRLF
+	$s &= "host DefaultIcon will be used.  If a DefaultIcon does not exist, the PFA icon will be used.  If a host default" & @CRLF
+	$s &= "is not found, the PFA default association and DefaultIcon will be used.  If no default is found and no PFA" & @CRLF
+	$s &= "default is set, then the OS will decide what association to use and the PFA icon will be used." & @CRLF
+	$s &= "b)  Host Precedence is not selected:  The default action for this extension will be set to the selected" & @CRLF
+	$s &= "PFA association.  The DefaultIcon will be set to the user-defined icon from this dialog." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "2)  No PFA default association is selected:" & @CRLF
+	$s &= "a)  Copy Host Associations is selected:  If a host default association exists it will be set as the default" & @CRLF
+	$s &= "and the host DefaultIcon will be used.  If a DefaultIcon does not exist, the PFA icon will be used." & @CRLF
+	$s &= "If no host default action is found, then the OS will decide what action to use as the default.  The PFA" & @CRLF
+	$s &= "defined icon will be used." & @CRLF
+	$s &= "b)  Copy Host Associations is not selected:  No default action is defined and the OS will decide.  The PFA" & @CRLF
+	$s &= "defined icon will be used." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "SendTo:" & @CRLF
+	$s &= "=======" & @CRLF
+	$s &= "Shortcuts defined here will show up in the system's 'Send to ->' context menu." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "ListView = Lists the currently defined shortcut names and targets.  Drag-and-drop files / folders onto this" & @CRLF
+	$s &= "           control to add new shortcuts (you are asked for a shortcut name and optional parameters)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Add... = Add a shortcut by browsing to it." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Remove = Remove a shortcut from the listview." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Clear = Clear all shortcuts from the listview." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Save = Save the current settings." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Done = Close the dialog (asks to save unsaved changes)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Profile:" & @CRLF
+	$s &= "========" & @CRLF
+	$s &= "Profile settings are stored per profile (Data\settings\<profile>_assoc.ini, _state.ini, _types.ini," & @CRLF
+	$s &= "_sendto.ini)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Dropdown = Displays the active profile.  Switch profiles by choosing a new one." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "New    = Create a new profile." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Clone  = Create a copy of an existing profile." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Rename = Rename the active profile." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Remove = Remove the active profile.  This action cannot be undone." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "The last used profile is stored as 'active' in 'Data\settings\profile.ini'." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "The profile buttons are icons (New, Clone, Rename, Remove).  They are shown greyed out and cannot be used" & @CRLF
+	$s &= "while the associations are active." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Settings:" & @CRLF
+	$s &= "=========" & @CRLF
+	$s &= "Click the gear icon at the bottom right of the main window.  Every option is saved as soon as it is changed" & @CRLF
+	$s &= "(no Save button).  They are stored in 'Data\settings\settings.ini' ([settings] section), the splash screen" & @CRLF
+	$s &= "option in 'FileAssociatorPortable.ini' next to the exe.  The profile files only keep profile data" & @CRLF
+	$s &= "('Data\settings\profile.ini' has [profile] active=<last used profile>)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Theme = System / Light / Dark." & @CRLF
+	$s &= "        System = Follow the Windows app theme (light or dark)." & @CRLF
+	$s &= "        Light  = Always light." & @CRLF
+	$s &= "        Dark   = Always dark.  Window and title bar, text, inputs, lists, buttons, the tray menu and the" & @CRLF
+	$s &= "                 icons (white instead of black) use dark colors." & @CRLF
+	$s &= "        settings.ini:  theme=system | light | dark" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Add associations on start = The associations of the last active profile are added automatically when PFA" & @CRLF
+	$s &= "        is started without command line arguments." & @CRLF
+	$s &= "        settings.ini:  addassociationonstart=true | false" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Remove associations on exit = The file associations are removed again when PFA is closed (Exit, close" & @CRLF
+	$s &= "        button, Windows shutdown).  On by default." & @CRLF
+	$s &= "        settings.ini:  removeonexit=true | false" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Check for updates on startup = Looks for a newer version in the background each time PFA starts (a message" & @CRLF
+	$s &= "        is only shown when a newer version exists).  The tray menu item ""Check for updates"" checks at any time." & @CRLF
+	$s &= "        settings.ini:  checkupdateonstartup=true | false" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Start minimized = On: PFA starts minimized to the tray.  Off: the main window is shown." & @CRLF
+	$s &= "        settings.ini:  startminimized=true | false" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Disable splash screen = No splash screen when PFA starts." & @CRLF
+	$s &= "        FileAssociatorPortable.ini (next to the exe):  DisableSplash=true" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Close button (X) minimizes to the tray = The close button hides the window in the tray instead of exiting" & @CRLF
+	$s &= "        (use the tray menu item Exit to quit).  Off by default." & @CRLF
+	$s &= "        settings.ini:  closetotray=true | false" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Values:  true, 1, yes, on = on;  false, 0 or blank = off.  Example settings.ini:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "    [settings]" & @CRLF
+	$s &= "    theme=dark" & @CRLF
+	$s &= "    addassociationonstart=true" & @CRLF
+	$s &= "    removeonexit=true" & @CRLF
+	$s &= "    checkupdateonstartup=true" & @CRLF
+	$s &= "    startminimized=false" & @CRLF
+	$s &= "    closetotray=false" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Settings of older versions are taken over automatically the first time this version starts (no settings.ini" & @CRLF
+	$s &= "yet):  theme and 'commandline=add_gui' (-> add associations on start + start minimized, and its profile" & @CRLF
+	$s &= "name) from profile.ini, the per-profile 'remove on close' state, and DisableUpdateCheck=true from" & @CRLF
+	$s &= "FileAssociatorPortable.ini.  The old 'commandline' and 'theme' lines are then removed from profile.ini." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "NOTE:  Windows' own message and file dialogs are not themed.  Dark buttons, combo boxes and scroll bars" & @CRLF
+	$s &= "       need Windows 10 (1903) or newer; on older systems they stay light." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Tray Menu:" & @CRLF
+	$s &= "==========" & @CRLF
+	$s &= "Left-click the tray icon to show the main window.  Right-click it to access these options." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Refresh icons now = Sends the SHChangeNotify() system message so Explorer refreshes the icons." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Check for updates = Checks online if a newer version of PFA is available (needs an internet connection)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Exit = Close PFA." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "The options ""Add associations on start"" and ""Remove associations on exit"" are in the Settings window." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "System Restore:" & @CRLF
+	$s &= "===============" & @CRLF
+	$s &= "While nothing destructive should happen as a result of using this app, it's always a good idea to have a backup." & @CRLF
+	$s &= "Press the Create System Restore Point button to create a System Restore Point." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Remember, this is a safety measure.  Under normal circumstances, Adding and Removing the file associations is" & @CRLF
+	$s &= "all that is necessary." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Modes of Operation:" & @CRLF
+	$s &= "===================" & @CRLF
+	$s &= "If run directly, the program starts the GUI where you can add or remove the associations, edit the" & @CRLF
+	$s &= "associations, file types and SendTo entries, or create a restore point.  Depending on the setting" & @CRLF
+	$s &= "'Remove associations on exit', the file associations are removed when PFA is closed." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "You can also run the program via command line: FileAssociatorPortable.exe <param1> <param2>" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "<param1> can be one of the following:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "add = Adds the file associations, then exits." & @CRLF
+	$s &= "add_gui = Adds the file associations, starts the GUI minimized to the tray." & @CRLF
+	$s &= "remove = Removes the file associations, then exits." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "<param2> is an optional parameter and must specify the profile to activate and use.  This parameter is" & @CRLF
+	$s &= "ignored if <param1> is 'remove'.  If it is left out, the last active profile is used (the profile" & @CRLF
+	$s &= "that was selected the last time PFA was used, stored as 'active' in 'Data\Settings\profile.ini')." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Examples -" & @CRLF
+	$s &= "    FileAssociatorPortable.exe add_gui                  (last active profile)" & @CRLF
+	$s &= "    FileAssociatorPortable.exe add_gui DefaultProfile   (this profile)" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Without command line arguments the Settings decide:  'Add associations on start' adds the associations of" & @CRLF
+	$s &= "the last active profile, 'Start minimized' starts the GUI in the tray.  Older versions used" & @CRLF
+	$s &= "'commandline=add_gui' in 'Data\Settings\profile.ini' for this; that line is no longer read (it is taken over" & @CRLF
+	$s &= "into the Settings automatically).  A launcher that can pass arguments can still use the command line above." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "If PFA is already running, there is one command line parameter available:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "exit = Close the running instance of PFA.  File associations are removed based on the setting" & @CRLF
+	$s &= "       'Remove associations on exit'." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Internal parameters:  multi_open and bg_open are used by the context-menu entries created for %%1 and" & @CRLF
+	$s &= "Background commands.  multi_open_admin and bg_open_admin are the same with ""Run as Admin"" (elevated start)." & @CRLF
+	$s &= "They are not meant to be started by hand." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Known Issues / Notes:" & @CRLF
+	$s &= "=====================" & @CRLF
+	$s &= "- The program was renamed from PortableFileAssociator to FileAssociatorPortable.  The old" & @CRLF
+	$s &= "  PortableFileAssociator.ini (DisableSplash / DisableUpdateCheck) is copied to FileAssociatorPortable.ini" & @CRLF
+	$s &= "  automatically.  Data\settings and the registry entries (PortableFileAssoc_<ext>) keep their names, so profiles" & @CRLF
+	$s &= "  and Remove File Associations keep working.  Entries added by the old exe start the old exe: remove the" & @CRLF
+	$s &= "  associations with the old version first (or Remove, then Add once with the new exe)." & @CRLF
+	$s &= "- Windows' own default app for an extension (Settings > Default apps, ie WinRAR for zip) is left alone unless a PFA" & @CRLF
+	$s &= "  default association takes over that extension.  In that case the key is renamed, not copied, while the" & @CRLF
+	$s &= "  associations are active, so the default app is back after Remove.  If Windows refuses the rename, the" & @CRLF
+	$s &= "  default app is left untouched (the PFA default may then not take effect)." & @CRLF
+	$s &= "- Windows 11 shows these (classic) context-menu entries under ""Show more options""." & @CRLF
+	$s &= "- 'Single file type' relies on the Windows verb setting MultiSelectModel=Single.  If an entry still appears" & @CRLF
+	$s &= "  with several items selected on your Windows version, leave the option unchecked." & @CRLF
+	$s &= "- Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme." & @CRLF
+	$s &= "- Background entries do not appear in virtual folders such as This PC or Control Panel." & @CRLF
+	$s &= "- File extension entries are also written to SystemFileAssociations\.<ext>\shell, so they show up even when" & @CRLF
+	$s &= "  Windows has a default app chosen for the extension (typical for media files such as mp3 and mp4).  Use" & @CRLF
+	$s &= "  Remove File Associations and then Add File Associations once after updating." & @CRLF
+	$s &= "- ""Run as Admin"" shows the Windows confirmation (UAC) every time the entry is used.  It is not available for" & @CRLF
+	$s &= "  the Recycle Bin." & @CRLF
+	$s &= "- After updating PFA, use Remove File Associations and then Add File Associations once, so the new" & @CRLF
+	$s &= "  commands (%%1, Run as Admin, Folder Command) are written to the registry." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Owner / Trademark:" & @CRLF
+	$s &= "==================" & @CRLF
+	$s &= "FileAssociatorPortable is owned by ShihabUddinX.  ShihabUddinX is a trademark of ShihabUddinX." & @CRLF
+	$s &= "Original work by Erik Pilsits." & @CRLF
+	Return $s
+EndFunc
+#EndRegion Embedded Readme
