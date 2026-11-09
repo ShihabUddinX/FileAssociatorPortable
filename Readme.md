@@ -189,7 +189,7 @@ Drive Command:  "E:\PortableApps\TerminalPortable\TerminalPortable.exe" -d %1
 | **...** (next to Folder Command) | Browse for the program. Inserts `"%1"`. |
 | **...** (next to Drive Command) | Browse for the program. Inserts `%1`. |
 | **Save** | Save the association and return to the list. Asks before overwriting another association that has the same name. |
-| **Cancel** | Close the Add / Edit window without saving. |
+| **Cancel** | Close the Add / Edit window without saving. The close button (X) of that window does the same. |
 | **?** | Open this Readme in a window. The Readme is built into the program, no Readme file is needed. |
 
 ### INI format
@@ -237,6 +237,7 @@ admin=1
 | **Use template file** | New items are created from a template instead of an empty file (see below). |
 | **Save File Type** | Save file type changes. Must be done after each change. |
 | **Done** | Close the dialog. Prompts to apply changes if any were made while the associations are active. |
+| **Close button (X)** | Works like **Cancel**: the window is closed without applying anything and without asking. |
 
 > **Note:** The index in the dialog will not exactly match the index used by Windows, however the correct Windows index is saved and written to the registry.
 
@@ -271,6 +272,7 @@ Shortcuts defined here show up in the system's **Send to →** context menu.
 | **Clear** | Clear all shortcuts from the list. |
 | **Save** | Save the current settings. |
 | **Done** | Close the dialog (asks to save unsaved changes). |
+| **Close button (X)** | Works like **Cancel**: the window is closed without saving and without asking (unsaved changes are lost). |
 
 ---
 
@@ -330,6 +332,7 @@ Left-click the tray icon to show the main window. Right-click it to access these
 
 | Item | Description |
 |---|---|
+| **Settings** | Opens the Settings window directly (the main window is shown first). |
 | **Refresh icons now** | Sends the `SHChangeNotify()` system message so Explorer refreshes the icons. |
 | **Check for updates** | Checks online if a newer version of PFA is available (needs an internet connection). |
 | **Exit** | Close PFA. |

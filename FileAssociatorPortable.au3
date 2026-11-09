@@ -113,7 +113,8 @@ Global $nSettings, $stGUI, $stTheme, $stAddStart, $stRemoveExit, $stCheckUpd, $s
 Global $fSetAddStart = False, $fSetRemoveExit = True, $fSetCheckUpd = True, $fSetStartMin = False, $fSetCloseTray = False ; Settings (settings.ini)
 Global $aMutedLbl[5][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
 Global Const $aProfIconNames[5] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile", "Settings"]
-Global $refreshnow, $trayexit
+Global $refreshnow, $trayexit, $traysettings
+Global $hAssocHdr = 0, $hsHdr = 0 ; list view headers (painted by hand in the dark theme)
 Global $aGUI, $eGUI, $hAssocLV, $aAddBtn, $aDelBtn, $aEditBtn, $aCloseBtn, $aHelpBtn, $sEditName = "", $hReadmeBack, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $singleChk, $chkFiles, $chkFolders, $chkDrives, $chkRecycle, $chkBackground, $iDriveCmd, $bBtnDrive, $iFolderCmd, $bBtnFolder, $runAdminChk, $cBtn, $sBtn, $hBtn, $bBtn
 Global $iAssocIcon, $iAssocIconBrowse, $iAssocIconIndex, $iAssocIconPreview
 Global $tGUI, $icondisplay, $ftypelist, $ftypeAssocFilter, $defassoclist, $hideext, $copyhost, $hostoverride, $ftypeicon, $iconbrowse, $iconindex, $indexupdown, $savetypes, $donetypes
@@ -602,6 +603,7 @@ Func _InitAllGUIs($guimode = "")
 	GUISetOnEvent($GUI_EVENT_RESTORE, "_RestoreMainGUI")
 
 	; tray menu
+	$traysettings = TrayCreateItem("Settings")
 	$refreshnow = TrayCreateItem("Refresh icons now")
 	$trayupdate = TrayCreateItem("Check for updates")
 	TrayCreateItem("")
@@ -609,6 +611,7 @@ Func _InitAllGUIs($guimode = "")
 
 	; tray events
 	TraySetOnEvent($TRAY_EVENT_PRIMARYDOWN, "_RestoreMainGUI")
+	TrayItemSetOnEvent($traysettings, "_TraySettings")
 	TrayItemSetOnEvent($refreshnow, "_RefreshNow")
 	TrayItemSetOnEvent($trayupdate, "_UpdateCheckManual")
 	TrayItemSetOnEvent($trayexit, "_Exit")
@@ -741,7 +744,7 @@ Func _InitAllGUIs($guimode = "")
 #EndRegion ===== association GUI
 #Region	===== types GUI
 	$tGUI = GUICreate("Configure File Types", 465, 340, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
-	GUISetOnEvent($GUI_EVENT_CLOSE, "_tGUIClose") ; close button (X) = Done
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_tGUICancel") ; close button (X) = Cancel (Done applies / asks, X does not)
 
 	GUICtrlCreateLabel("Association:", 10, 13)
 	$ftypeAssocFilter = GUICtrlCreateCombo("", 78, 8, 180, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
@@ -792,7 +795,7 @@ Func _InitAllGUIs($guimode = "")
 #EndRegion ===== types GUI
 #Region ===== SendTo GUI
 	$sGUI = GUICreate("SendTo Configuration", 600, 315, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
-	GUISetOnEvent($GUI_EVENT_CLOSE, "_sCloseGUI") ; close button (X) = Done
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_sCancelGUI") ; close button (X) = Cancel (Done asks to save, X does not)
 	$hsLV = _GUICtrlListView_Create($sGUI, "Shortcut Name|Path", 5, 5, 590, 250, BitOR($WS_BORDER, $LVS_NOSORTHEADER, $LVS_REPORT, $LVS_SHOWSELALWAYS), _
 																					$WS_EX_ACCEPTFILES)
 	_GUICtrlListView_SetExtendedListViewStyle($hsLV, BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT), BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT))
@@ -876,10 +879,12 @@ Func _InitAllGUIs($guimode = "")
 	Local $fMinNow = ($guimode = "add_gui" Or ($guimode = "" And $fSetStartMin))
 	If $fAddNow Then _AddAssociations() ; add the associations while the splash screen is shown (no extra waiting time)
 	_SplashHide($hSplash, $hSplashTimer)
+	GUISwitch($nGUI) ; deleting the splash window can change the current GUI: always use the main GUI explicitly
 	If $fMinNow Then
-		GUISetState(@SW_SHOWMINNOACTIVE)
+		GUISetState(@SW_SHOWMINNOACTIVE, $nGUI) ; Start minimized
 	Else
-		GUISetState(@SW_SHOW) ; show main GUI
+		GUISetState(@SW_SHOW, $nGUI) ; show main GUI
+		WinActivate($nGUI) ; the splash window had the focus
 	EndIf
 EndFunc
 #EndRegion GUI Creation Functions (all GUIs)
@@ -1147,15 +1152,15 @@ Func _RefreshAssocGUI($sSelect = "")
 	_GUICtrlListView_DeleteAllItems($hAssocLV)
 	For $i = 1 To $aNames[0]
 		$idx = _GUICtrlListView_AddItem($hAssocLV, $aNames[$i])
-		_GUICtrlListView_AddSubItem($hAssocLV, _AssocTargets($aNames[$i]), $idx, 1)
+		_GUICtrlListView_AddSubItem($hAssocLV, $idx, _AssocTargets($aNames[$i]), 1)
 		$sOpt = ""
 		If _AssocFlag($aNames[$i], "single") Then $sOpt = _AssocJoin($sOpt, "Single")
 		If _AssocFlag($aNames[$i], "admin") Then $sOpt = _AssocJoin($sOpt, "Admin")
-		_GUICtrlListView_AddSubItem($hAssocLV, $sOpt, $idx, 2)
+		_GUICtrlListView_AddSubItem($hAssocLV, $idx, $sOpt, 2)
 		If Number(IniRead($associni, $aNames[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then
-			_GUICtrlListView_AddSubItem($hAssocLV, "Disabled", $idx, 3)
+			_GUICtrlListView_AddSubItem($hAssocLV, $idx, "Disabled", 3)
 		Else
-			_GUICtrlListView_AddSubItem($hAssocLV, "Enabled", $idx, 3)
+			_GUICtrlListView_AddSubItem($hAssocLV, $idx, "Enabled", 3)
 		EndIf
 		If $aNames[$i] = $sSel Then $iSel = $idx
 	Next
@@ -1780,9 +1785,14 @@ EndFunc
 
 Func _MY_WM_NOTIFY($hWnd, $Msg, $wParam, $lParam)
 	#forceref $Msg, $wParam
-	If $hWnd <> $aGUI Then Return $GUI_RUNDEFMSG
-	Local $tNMHDR = DllStructCreate("hwnd hWndFrom;uint_ptr IDFrom;int Code", $lParam)
-	If DllStructGetData($tNMHDR, "hWndFrom") = $hAssocLV And DllStructGetData($tNMHDR, "Code") = -3 Then AdlibRegister("_AssocDblClick", 10) ; NM_DBLCLK: open the editor outside of the message handler
+	Local $tHdr = DllStructCreate("hwnd hWndFrom;uint_ptr IDFrom;int Code", $lParam)
+	Local $hFrom = DllStructGetData($tHdr, "hWndFrom"), $iCode = DllStructGetData($tHdr, "Code")
+	; double-click in the association list: open the editor outside of the message handler
+	If $hWnd = $aGUI And $hFrom = $hAssocLV And $iCode = -3 Then AdlibRegister("_AssocDblClick", 10) ; NM_DBLCLK
+	; dark theme: paint the list view headers
+	If $fDark And $iCode = -12 Then ; NM_CUSTOMDRAW
+		If $hFrom = $hAssocHdr Or $hFrom = $hsHdr Then Return _ThemeHeaderDraw($hFrom, $lParam)
+	EndIf
 	Return $GUI_RUNDEFMSG
 EndFunc
 
@@ -2048,6 +2058,13 @@ Func _CopyHostToggle()
 	EndIf
 EndFunc
 
+Func _tGUICancel()
+	; close button (X): leave without applying anything and without asking (the Done button applies icon changes)
+	GUISetState(@SW_HIDE, $tGUI)
+	GUISetState(@SW_ENABLE, $nGUI)
+	WinActivate($nGUI) ; bring to front
+EndFunc
+
 Func _tGUIClose()
 	If $iconchange And $state = 1 Then ; if icons changed and active
 		If 6 = MsgBox(4 + 32, "File Types", "Changes have been made while associations are active" & @CRLF & "and will be applied now.  Continue?", 0, $tGUI) Then
@@ -2231,6 +2248,14 @@ Func _SaveSendTo()
 	If $state = 1 Then _DoSendToShortcuts() ; apply new shortcuts
 	MsgBox(64, "SendTo", "Saved.", 0, $sGUI)
 	Return True ; close the dialog from close func
+EndFunc
+
+Func _sCancelGUI()
+	; close button (X): leave without saving and without asking (the list is read from the INI again next time)
+	$sChanges = False
+	GUISetState(@SW_HIDE, $sGUI)
+	GUISetState(@SW_ENABLE, $nGUI)
+	WinActivate($nGUI)
 EndFunc
 
 Func _sCloseGUI()
@@ -3294,12 +3319,16 @@ EndFunc
 
 Func _ThemeListView($hLV)
 	Local $hHdr = _GUICtrlListView_GetHeader($hLV)
+	If $hLV = $hsLV Then $hsHdr = $hHdr
+	If $hLV = $hAssocLV Then $hAssocHdr = $hHdr
+	DllCall("uxtheme.dll", "bool", 133, "hwnd", $hLV, "bool", $fDark) ; AllowDarkModeForWindow
 	If $fDark Then
 		_ThemeSetWT($hLV, "DarkMode_Explorer")
 	Else
 		_ThemeSetWT($hLV, "")
 	EndIf
 	If $hHdr Then
+		DllCall("uxtheme.dll", "bool", 133, "hwnd", $hHdr, "bool", $fDark)
 		If $fDark Then
 			_ThemeSetWT($hHdr, "DarkMode_ItemsView")
 		Else
@@ -3309,6 +3338,53 @@ Func _ThemeListView($hLV)
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1001, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETBKCOLOR
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1026, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETTEXTBKCOLOR
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1024, "wparam", 0, "lparam", _BGR($iTextCol)) ; LVM_SETTEXTCOLOR
+	If $hHdr Then DllCall("user32.dll", "bool", "InvalidateRect", "hwnd", $hHdr, "ptr", 0, "bool", True)
+EndFunc
+
+Func _ThemeFillRect($hDC, $iLeft, $iTop, $iRight, $iBottom, $iRGB)
+	Local $tRC = DllStructCreate("long Left;long Top;long Right;long Bottom")
+	DllStructSetData($tRC, "Left", $iLeft)
+	DllStructSetData($tRC, "Top", $iTop)
+	DllStructSetData($tRC, "Right", $iRight)
+	DllStructSetData($tRC, "Bottom", $iBottom)
+	Local $aBr = DllCall("gdi32.dll", "handle", "CreateSolidBrush", "dword", _BGR($iRGB))
+	If @error Then Return
+	DllCall("user32.dll", "int", "FillRect", "handle", $hDC, "struct*", $tRC, "handle", $aBr[0])
+	DllCall("gdi32.dll", "bool", "DeleteObject", "handle", $aBr[0])
+EndFunc
+
+Func _ThemeHeaderDraw($hHdr, $lParam)
+	; Dark theme: the themed list view header keeps dark text on the dark background, so every header item is painted here.
+	; (the header sends NM_CUSTOMDRAW, the list view forwards it to its parent window, see _MY_WM_NOTIFY)
+	Local $tCD
+	If @AutoItX64 Then ; NMHDR is padded to 24 bytes in the 64 bit structure
+		$tCD = DllStructCreate("hwnd hWndFrom;uint_ptr IDFrom;int Code;int Pad;dword DrawStage;handle hdc;long Left;long Top;long Right;long Bottom;dword_ptr ItemSpec;uint ItemState;lparam ItemParam", $lParam)
+	Else
+		$tCD = DllStructCreate("hwnd hWndFrom;uint_ptr IDFrom;int Code;dword DrawStage;handle hdc;long Left;long Top;long Right;long Bottom;dword_ptr ItemSpec;uint ItemState;lparam ItemParam", $lParam)
+	EndIf
+	Local $iStage = DllStructGetData($tCD, "DrawStage")
+	If $iStage = 1 Then Return 0x20 ; CDDS_PREPAINT -> CDRF_NOTIFYITEMDRAW
+	If $iStage <> 0x10001 Then Return 0 ; only CDDS_ITEMPREPAINT
+	Local $hDC = DllStructGetData($tCD, "hdc"), $iItem = DllStructGetData($tCD, "ItemSpec")
+	Local $iL = DllStructGetData($tCD, "Left"), $iT = DllStructGetData($tCD, "Top"), $iR = DllStructGetData($tCD, "Right"), $iB = DllStructGetData($tCD, "Bottom")
+	_ThemeFillRect($hDC, $iL, $iT, $iR, $iB, 0x333333) ; header background
+	_ThemeFillRect($hDC, $iR - 1, $iT + 4, $iR, $iB - 4, 0x5A5A5A) ; separator
+	; text of the header item (HDM_GETITEMW)
+	Local $tBuf = DllStructCreate("wchar[128]")
+	Local $tHDI = DllStructCreate("uint mask;int cxy;ptr pszText;handle hbm;int cchTextMax;int fmt;lparam lParam;int iImage;int iOrder;uint type;ptr pvFilter;uint state")
+	DllStructSetData($tHDI, "mask", 0x2) ; HDI_TEXT
+	DllStructSetData($tHDI, "pszText", DllStructGetPtr($tBuf))
+	DllStructSetData($tHDI, "cchTextMax", 128)
+	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hHdr, "uint", 0x120B, "wparam", $iItem, "struct*", $tHDI)
+	Local $tTR = DllStructCreate("long Left;long Top;long Right;long Bottom")
+	DllStructSetData($tTR, "Left", $iL + 8)
+	DllStructSetData($tTR, "Top", $iT)
+	DllStructSetData($tTR, "Right", $iR - 6)
+	DllStructSetData($tTR, "Bottom", $iB)
+	DllCall("gdi32.dll", "int", "SetBkMode", "handle", $hDC, "int", 1) ; TRANSPARENT
+	DllCall("gdi32.dll", "dword", "SetTextColor", "handle", $hDC, "dword", _BGR($iTextCol))
+	DllCall("user32.dll", "int", "DrawTextW", "handle", $hDC, "wstr", DllStructGetData($tBuf, 1), "int", -1, "struct*", $tTR, "uint", 0x8824) ; DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS
+	Return 4 ; CDRF_SKIPDEFAULT
 EndFunc
 
 Func _ThemeApply($hOnly = 0)
@@ -3534,6 +3610,17 @@ Func _SettingsGUI()
 	_SettingsSync()
 	GUISetState(@SW_DISABLE, $nGUI) ; disable main GUI
 	GUISetState(@SW_SHOW, $stGUI)
+EndFunc
+
+Func _TraySettings()
+	; Settings directly from the tray menu.  The Settings window belongs to the main window, so that is shown first.
+	If BitAND(WinGetState($stGUI), 2) Then ; already open
+		WinActivate($stGUI)
+		Return
+	EndIf
+	If Not BitAND(WinGetState($nGUI), 4) Then Return ; the main window is disabled: another window is open
+	_RestoreMainGUI()
+	_SettingsGUI()
 EndFunc
 
 Func _SettingsClose()
@@ -4299,7 +4386,7 @@ Func _ReadmeText()
 	$s &= "Save = Save the association and return to the list.  Asks before overwriting another association that" & @CRLF
 	$s &= "       has the same name." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Cancel = Close the Add / Edit window without saving." & @CRLF
+	$s &= "Cancel = Close the Add / Edit window without saving.  The close button (X) of that window does the same." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "? = Opens this Readme in a window.  The Readme is built into the program, no Readme file is needed." & @CRLF
 	$s &= "" & @CRLF
@@ -4368,6 +4455,8 @@ Func _ReadmeText()
 	$s &= "Done = Closes the file type edit dialog, and prompts to apply changes if any have been made while the" & @CRLF
 	$s &= "       associations are active." & @CRLF
 	$s &= "" & @CRLF
+	$s &= "Close button (X) = Works like Cancel: the window is closed without applying anything and without asking." & @CRLF
+	$s &= "" & @CRLF
 	$s &= "" & @CRLF
 	$s &= "For new file extensions, the icon will initially be set to the first association defined in the INI file" & @CRLF
 	$s &= "which is associated with the extension." & @CRLF
@@ -4410,6 +4499,9 @@ Func _ReadmeText()
 	$s &= "Save = Save the current settings." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Done = Close the dialog (asks to save unsaved changes)." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Close button (X) = Works like Cancel: the window is closed without saving and without asking (unsaved" & @CRLF
+	$s &= "       changes are lost)." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Profile:" & @CRLF
@@ -4492,6 +4584,8 @@ Func _ReadmeText()
 	$s &= "Tray Menu:" & @CRLF
 	$s &= "==========" & @CRLF
 	$s &= "Left-click the tray icon to show the main window.  Right-click it to access these options." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Settings = Opens the Settings window directly (the main window is shown first)." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Refresh icons now = Sends the SHChangeNotify() system message so Explorer refreshes the icons." & @CRLF
 	$s &= "" & @CRLF
