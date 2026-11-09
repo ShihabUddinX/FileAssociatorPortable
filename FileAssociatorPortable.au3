@@ -63,9 +63,9 @@ Opt("WinTitleMatchMode", 3) ; exact title match
 
 Global Const $version = "3.0.0.5"
 ; update checker (see "Update checker" region)
-Global Const $UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ShihabUddinX/PortableFileAssociator/main/.github/version.pfa"
-Global Const $UPDATE_RELEASE_URL = "https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/"
-Global Const $UPDATE_API_URL = "https://api.github.com/repos/ShihabUddinX/PortableFileAssociator/contents/.github/version.pfa?ref=main"
+Global Const $UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ShihabUddinX/FileAssociatorPortable/main/.github/version.pfa"
+Global Const $UPDATE_RELEASE_URL = "https://github.com/ShihabUddinX/FileAssociatorPortable/releases/tag/"
+Global Const $UPDATE_API_URL = "https://api.github.com/repos/ShihabUddinX/FileAssociatorPortable/contents/.github/version.pfa?ref=main"
 Global $oUpdate = 0, $hUpdateTimer = 0, $fUpdateManual = False, $iUpdateComErr = 0, $iUpdateStage = 0, $trayupdate
 
 #Region Commandline
@@ -114,7 +114,7 @@ Global $fSetAddStart = False, $fSetRemoveExit = True, $fSetCheckUpd = True, $fSe
 Global $aMutedLbl[5][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
 Global Const $aProfIconNames[5] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile", "Settings"]
 Global $refreshnow, $trayexit
-Global $aGUI, $lSec, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $singleChk, $chkFiles, $chkFolders, $chkDrives, $chkRecycle, $chkBackground, $iDriveCmd, $bBtnDrive, $iFolderCmd, $bBtnFolder, $runAdminChk, $cBtn, $sBtn, $delBtn, $dBtn, $hBtn, $bBtn
+Global $aGUI, $eGUI, $hAssocLV, $aAddBtn, $aDelBtn, $aEditBtn, $aCloseBtn, $aHelpBtn, $sEditName = "", $hReadmeBack, $iSec, $iMode, $iTitle, $iCommand, $dChk, $disChk, $singleChk, $chkFiles, $chkFolders, $chkDrives, $chkRecycle, $chkBackground, $iDriveCmd, $bBtnDrive, $iFolderCmd, $bBtnFolder, $runAdminChk, $cBtn, $sBtn, $hBtn, $bBtn
 Global $iAssocIcon, $iAssocIconBrowse, $iAssocIconIndex, $iAssocIconPreview
 Global $tGUI, $icondisplay, $ftypelist, $ftypeAssocFilter, $defassoclist, $hideext, $copyhost, $hostoverride, $ftypeicon, $iconbrowse, $iconindex, $indexupdown, $savetypes, $donetypes
 Global $showNewMenu, $newMenuName, $useTemplate, $templateFile
@@ -137,6 +137,7 @@ Global $fVistaOrBetter = False, $fXPOrBetter = False
 _OSVersion()
 
 GUIRegisterMsg($WM_COMMAND, "_MY_WM_COMMAND")
+GUIRegisterMsg($WM_NOTIFY, "_MY_WM_NOTIFY") ; double-click in the association list = Edit
 GUIRegisterMsg($wndMSG, "_MY_CUSTOM_MSG")
 GUIRegisterMsg(0x16, "_MY_WM_ENDSESSION") ; WM_ENDSESSION
 
@@ -630,83 +631,106 @@ Func _InitAllGUIs($guimode = "")
 	_ActionButtonsState() ; action buttons
 #EndRegion ===== main GUI & tray
 #Region	===== association GUI
-	$aGUI = GUICreate("Edit Associations", 550, 490, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
-	GUISetOnEvent($GUI_EVENT_CLOSE, "_aGUIClose") ; close button (X) = Done
-	; association list and editor labels
-	$lSec = GUICtrlCreateList("", 10, 34, 108, 430, BitOR($LBS_SORT, $WS_HSCROLL, $WS_VSCROLL))
-	GUICtrlCreateLabel("Associations", 10, 12, 100, 18)
-	GUICtrlCreateLabel("Association Name", 136, 66, 110, 18)
-	GUICtrlCreateLabel("Associated Types (extensions)", 286, 66, 235, 18)
-	GUICtrlCreateLabel("Also add to", 136, 118, 200, 18)
-	GUICtrlCreateLabel("Context-menu title", 136, 192, 140, 18)
-	GUICtrlCreateLabel("Context-menu icon", 136, 244, 140, 18)
-	GUICtrlCreateLabel("Icon index", 458, 244, 70, 18)
-	GUICtrlCreateLabel("Command", 136, 299, 70, 18)
-	GUICtrlCreateLabel("Drive Command", 136, 349, 110, 18)
-	GUICtrlCreateLabel("Folder Command", 136, 399, 110, 18)
-	$aMutedLbl[2][0] = GUICtrlCreateLabel("%1 = one file, %%1 = all selected files, %V = current folder (background).", 136, 448, 400, 16)
-	$aMutedLbl[2][1] = 0x666666
-	GUICtrlSetFont(-1, 8, 400, 2)
-	GUICtrlSetColor(-1, 0x666666)
-	; editor inputs
-	$iSec = GUICtrlCreateInput("", 136, 86, 130, 23)
+	; ---- list window: all associations, buttons Add / Delete / Edit / Close
+	$aGUI = GUICreate("Associations", 560, 376, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_aGUIClose") ; close button (X) = Close
+	$hAssocLV = _GUICtrlListView_Create($aGUI, "Name|Targets|Options|State", 12, 12, 536, 310, BitOR($WS_BORDER, $LVS_NOSORTHEADER, $LVS_REPORT, $LVS_SHOWSELALWAYS, $LVS_SINGLESEL))
+	_GUICtrlListView_SetExtendedListViewStyle($hAssocLV, BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT), BitOR($LVS_EX_DOUBLEBUFFER, $LVS_EX_FULLROWSELECT))
+	_GUICtrlListView_SetColumnWidth($hAssocLV, 0, 150)
+	_GUICtrlListView_SetColumnWidth($hAssocLV, 1, 195)
+	_GUICtrlListView_SetColumnWidth($hAssocLV, 2, 95)
+	_GUICtrlListView_SetColumnWidth($hAssocLV, 3, 70)
+	$aHelpBtn = GUICtrlCreateButton("?", 12, 336, 28, 28)
+	GUICtrlSetTip(-1, "Readme")
+	$aAddBtn = GUICtrlCreateButton("Add", 60, 336, 84, 28)
+	GUICtrlSetTip(-1, "Add a new association.")
+	$aDelBtn = GUICtrlCreateButton("Delete", 152, 336, 84, 28)
+	GUICtrlSetTip(-1, "Delete the selected association.")
+	$aEditBtn = GUICtrlCreateButton("Edit", 244, 336, 84, 28)
+	GUICtrlSetTip(-1, "Edit the selected association (or double-click it).")
+	$aCloseBtn = GUICtrlCreateButton("Close", 464, 336, 84, 28)
+	GUICtrlSetOnEvent($aHelpBtn, "_AssocHelp")
+	GUICtrlSetOnEvent($aAddBtn, "_AssocAdd")
+	GUICtrlSetOnEvent($aDelBtn, "_DeleteAssocSection")
+	GUICtrlSetOnEvent($aEditBtn, "_AssocEdit")
+	GUICtrlSetOnEvent($aCloseBtn, "_aGUIClose")
+
+	; ---- editor window: details of one association (Add / Edit)
+	$eGUI = GUICreate("Add Association", 560, 576, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $aGUI)
+	GUISetOnEvent($GUI_EVENT_CLOSE, "_AssocCancel") ; close button (X) = Cancel
+	GUICtrlCreateGroup("General", 12, 8, 536, 70)
+	GUICtrlCreateLabel("Association Name", 24, 28, 180, 16)
+	GUICtrlCreateLabel("Associated Types (extensions)", 216, 28, 320, 16)
+	$iSec = GUICtrlCreateInput("", 24, 46, 180, 23)
 	GUICtrlSetTip(-1, "Internal association name. Cannot include ',' or '*'.")
-	$iMode = GUICtrlCreateInput("", 286, 86, 235, 23)
+	$iMode = GUICtrlCreateInput("", 216, 46, 320, 23)
 	GUICtrlSetTip(-1, "File extensions only, separated by | (for example: txt|md|log)." & @CRLF & _
 		"Files, folders, drives, recycle bin and background are the tick boxes below." & @CRLF & _
 		"Disabled while ""Files"" is ticked (all files).")
-	; special targets (tick boxes)
-	$chkFiles = GUICtrlCreateCheckbox("Files", 136, 136, 56, 20)
+	GUICtrlCreateGroup("", -99, -99, 1, 1) ; close group
+	GUICtrlCreateGroup("Also add to", 12, 86, 536, 54)
+	$chkFiles = GUICtrlCreateCheckbox("Files", 24, 108, 80, 20)
 	GUICtrlSetTip(-1, "All files (wildcard *). The extension list is not needed and is disabled.")
-	$chkFolders = GUICtrlCreateCheckbox("Folders", 193, 136, 68, 20)
+	$chkFolders = GUICtrlCreateCheckbox("Folders", 112, 108, 80, 20)
 	GUICtrlSetTip(-1, "All folders.")
-	$chkDrives = GUICtrlCreateCheckbox("Drives", 263, 136, 62, 20)
+	$chkDrives = GUICtrlCreateCheckbox("Drives", 200, 108, 80, 20)
 	GUICtrlSetTip(-1, "All drives. Drives have their own ""Drive Command"".")
-	$chkRecycle = GUICtrlCreateCheckbox("Recycle Bin", 327, 136, 95, 20)
+	$chkRecycle = GUICtrlCreateCheckbox("Recycle Bin", 288, 108, 104, 20)
 	GUICtrlSetTip(-1, "The Recycle Bin.")
-	$chkBackground = GUICtrlCreateCheckbox("Background", 424, 136, 98, 20)
+	$chkBackground = GUICtrlCreateCheckbox("Background", 400, 108, 110, 20)
 	GUICtrlSetTip(-1, "Empty space of a folder window and of the desktop (like ""Open Terminal here"")." & @CRLF & "Use %V for the folder, e.g.  wt.exe -d ""%V"".")
-	$disChk = GUICtrlCreateCheckbox("Disabled", 136, 164, 90, 20)
+	GUICtrlCreateGroup("", -99, -99, 1, 1) ; close group
+	GUICtrlCreateGroup("Options", 12, 148, 536, 54)
+	$disChk = GUICtrlCreateCheckbox("Disabled", 24, 170, 100, 20)
 	GUICtrlSetTip(-1, "Disable this association without deleting its settings.")
-	$singleChk = GUICtrlCreateCheckbox("Single file type", 236, 164, 135, 20)
+	$singleChk = GUICtrlCreateCheckbox("Single file type", 136, 170, 150, 20)
 	GUICtrlSetTip(-1, "Show this association only when ONE item is selected (hidden when several are selected)." & @CRLF & "Applies to Files, Folders, Drives and extension types (e.g. iso).")
-	$iTitle = GUICtrlCreateInput("", 136, 212, 385, 23)
-	GUICtrlSetTip(-1, "Text displayed in the Windows context menu.")
-	$iAssocIcon = GUICtrlCreateInput("", 136, 264, 250, 23)
-	GUICtrlSetTip(-1, "Optional icon file. Supports ICO, EXE and DLL files; relative paths are portable.")
-	$iAssocIconBrowse = GUICtrlCreateButton("Browse...", 392, 263, 60, 25)
-	$iAssocIconIndex = GUICtrlCreateInput("0", 458, 264, 42, 23)
-	GUICtrlSetTip(-1, "Icon resource index. Usually 0 for ICO files.")
-	$iAssocIconPreview = GUICtrlCreateIcon("", "", 506, 260, 32, 32)
-	$iCommand = GUICtrlCreateInput("", 136, 319, 385, 23)
-	GUICtrlSetTip(-1, "%1 = selected file, folder or drive (one run per item)." & @CRLF & "%%1 = ALL selected items in one run, e.g.  FastCopy.exe %%1  ->  FastCopy.exe ""file1"" ""file2"" ""file3""" & @CRLF & "%V = current folder (background).")
-	$bBtn = GUICtrlCreateButton("...", 526, 319, 20, 23)
-	$iDriveCmd = GUICtrlCreateInput("", 136, 369, 385, 23)
-	GUICtrlSetTip(-1, "Command used for drives (only available when ""Drives"" is ticked)." & @CRLF & "Use %1 or %V WITHOUT quotes: a drive path like E:\ ends with a backslash." & @CRLF & "Example:  E:\PortableApps\Terminal\Terminal.exe -d %1" & @CRLF & "If empty, the Command is used for drives too.")
-	$bBtnDrive = GUICtrlCreateButton("...", 526, 369, 20, 23)
-	$iFolderCmd = GUICtrlCreateInput("", 136, 419, 385, 23)
-	GUICtrlSetTip(-1, "Command used for folders (only available when ""Folders"" is ticked)." & @CRLF & "Use %1 for the folder, e.g.  FastCopy.exe ""%1""   or  %%1 for all selected folders in one run." & @CRLF & "If empty, the Command is used for folders too (when the association also has other targets).")
-	$bBtnFolder = GUICtrlCreateButton("...", 526, 419, 20, 23)
-	$runAdminChk = GUICtrlCreateCheckbox("Run as Admin", 376, 164, 145, 20)
+	$runAdminChk = GUICtrlCreateCheckbox("Run as Admin", 298, 170, 130, 20)
 	GUICtrlSetTip(-1, "Run the command with administrator rights (UAC prompt)." & @CRLF & "Use this for programs that need admin access. Not used for the Recycle Bin.")
-	; action buttons
-	$cBtn = GUICtrlCreateButton("Clear", 136, 24, 55, 27)
-	$sBtn = GUICtrlCreateButton("Save", 202, 24, 55, 27)
-	$delBtn = GUICtrlCreateButton("Delete", 268, 24, 55, 27)
-	$dBtn = GUICtrlCreateButton("Done", 456, 24, 65, 27)
-	$hBtn = GUICtrlCreateButton("?", 510, 8, 20, 18)
-	GUICtrlSetCursor(-1, 4)
+	GUICtrlCreateGroup("", -99, -99, 1, 1) ; close group
+	GUICtrlCreateGroup("Context menu", 12, 210, 536, 120)
+	GUICtrlCreateLabel("Context-menu title", 24, 230, 200, 16)
+	$iTitle = GUICtrlCreateInput("", 24, 246, 512, 23)
+	GUICtrlSetTip(-1, "Text displayed in the Windows context menu.")
+	GUICtrlCreateLabel("Context-menu icon", 24, 276, 200, 16)
+	GUICtrlCreateLabel("Icon index", 420, 276, 70, 16)
+	$iAssocIcon = GUICtrlCreateInput("", 24, 292, 310, 23)
+	GUICtrlSetTip(-1, "Optional icon file. Supports ICO, EXE and DLL files; relative paths are portable.")
+	$iAssocIconBrowse = GUICtrlCreateButton("Browse...", 340, 291, 64, 25)
+	$iAssocIconIndex = GUICtrlCreateInput("0", 420, 292, 50, 23)
+	GUICtrlSetTip(-1, "Icon resource index. Usually 0 for ICO files.")
+	$iAssocIconPreview = GUICtrlCreateIcon("", "", 496, 288, 32, 32)
+	GUICtrlCreateGroup("", -99, -99, 1, 1) ; close group
+	GUICtrlCreateGroup("Commands", 12, 338, 536, 186)
+	GUICtrlCreateLabel("Command", 24, 358, 200, 16)
+	$iCommand = GUICtrlCreateInput("", 24, 374, 476, 23)
+	GUICtrlSetTip(-1, "%1 = selected file, folder or drive (one run per item)." & @CRLF & "%%1 = ALL selected items in one run, e.g.  FastCopy.exe %%1  ->  FastCopy.exe ""file1"" ""file2"" ""file3""" & @CRLF & "%V = current folder (background).")
+	$bBtn = GUICtrlCreateButton("...", 506, 374, 30, 23)
+	GUICtrlCreateLabel("Drive Command", 24, 404, 200, 16)
+	$iDriveCmd = GUICtrlCreateInput("", 24, 420, 476, 23)
+	GUICtrlSetTip(-1, "Command used for drives (only available when ""Drives"" is ticked)." & @CRLF & "Use %1 or %V WITHOUT quotes: a drive path like E:\ ends with a backslash." & @CRLF & "Example:  E:\PortableApps\Terminal\Terminal.exe -d %1" & @CRLF & "If empty, the Command is used for drives too.")
+	$bBtnDrive = GUICtrlCreateButton("...", 506, 420, 30, 23)
+	GUICtrlCreateLabel("Folder Command", 24, 450, 200, 16)
+	$iFolderCmd = GUICtrlCreateInput("", 24, 466, 476, 23)
+	GUICtrlSetTip(-1, "Command used for folders (only available when ""Folders"" is ticked)." & @CRLF & "Use %1 for the folder, e.g.  FastCopy.exe ""%1""   or  %%1 for all selected folders in one run." & @CRLF & "If empty, the Command is used for folders too (when the association also has other targets).")
+	$bBtnFolder = GUICtrlCreateButton("...", 506, 466, 30, 23)
+	$aMutedLbl[2][0] = GUICtrlCreateLabel("%1 = one file, %%1 = all selected files, %V = current folder (background).", 24, 496, 512, 16)
+	$aMutedLbl[2][1] = 0x666666
+	GUICtrlSetFont(-1, 8, 400, 2)
+	GUICtrlSetColor(-1, 0x666666)
+	GUICtrlCreateGroup("", -99, -99, 1, 1) ; close group
+	$hBtn = GUICtrlCreateButton("?", 12, 536, 28, 28)
+	GUICtrlSetTip(-1, "Readme")
+	$sBtn = GUICtrlCreateButton("Save", 372, 536, 84, 28)
+	$cBtn = GUICtrlCreateButton("Cancel", 464, 536, 84, 28)
 
 	; control events
-	GUICtrlSetOnEvent($lSec, "_GetAssocInfo") ; click a list item
-	GUICtrlSetOnEvent($cBtn, "_RefreshAssocGUI") ; clear button
-	GUICtrlSetOnEvent($sBtn, "_SaveAssocSection") ; save button
-	GUICtrlSetOnEvent($delBtn, "_DeleteAssocSection") ; delete button
-	GUICtrlSetOnEvent($dBtn, "_aGUIClose") ; done button
 	GUICtrlSetOnEvent($hBtn, "_AssocHelp") ; help button
+	GUICtrlSetOnEvent($sBtn, "_SaveAssocSection") ; save button
+	GUICtrlSetOnEvent($cBtn, "_AssocCancel") ; cancel button
 	GUICtrlSetOnEvent($bBtn, "_BrowseCommand") ; browse command target
 	GUICtrlSetOnEvent($bBtnDrive, "_BrowseDriveCommand")
-	GUICtrlSetOnEvent($bBtnFolder, "_BrowseFolderCommand") ; browse drive command target
+	GUICtrlSetOnEvent($bBtnFolder, "_BrowseFolderCommand")
 	GUICtrlSetOnEvent($iAssocIconBrowse, "_BrowseAssocIcon") ; browse context-menu icon
 	GUICtrlSetOnEvent($chkFiles, "_AssocUpdateControls") ; target tick boxes enable / disable inputs
 	GUICtrlSetOnEvent($chkFolders, "_AssocUpdateControls")
@@ -1084,20 +1108,63 @@ EndFunc
 Func _EditAssocINI()
 	_RefreshAssocGUI()
 	GUISetState(@SW_DISABLE, $nGUI) ; disable main GUI
-	WinSetTitle($aGUI, "", "Edit Associations - " & $curProfile)
-	GUISetState(@SW_SHOW, $aGUI) ; show assoc GUI
+	WinSetTitle($aGUI, "", "Associations - " & $curProfile)
+	GUISetState(@SW_SHOW, $aGUI) ; show the association list
 EndFunc
 
-Func _RefreshAssocGUI()
-	Local $section, $aListdata[1] = [0], $i
+Func _AssocJoin($sA, $sB)
+	If $sA = "" Then Return $sB
+	Return $sA & ", " & $sB
+EndFunc
 
+Func _AssocTargets($sSec)
+	; text for the "Targets" column: extensions + the ticked special targets
+	Local $s = StringReplace(StringStripWS(IniRead($associni, $sSec, "mode", ""), 8), "|", ", ")
+	If _AssocFlag($sSec, "files") Then $s = _AssocJoin($s, "Files")
+	If _AssocFlag($sSec, "folders") Then $s = _AssocJoin($s, "Folders")
+	If _AssocFlag($sSec, "drives") Then $s = _AssocJoin($s, "Drives")
+	If _AssocFlag($sSec, "recycle") Then $s = _AssocJoin($s, "Recycle Bin")
+	If _AssocFlag($sSec, "background") Then $s = _AssocJoin($s, "Background")
+	Return $s
+EndFunc
+
+Func _AssocSelected()
+	; name of the selected association in the list, "" = nothing selected
+	Local $aSel = _GUICtrlListView_GetSelectedIndices($hAssocLV, True)
+	If Not IsArray($aSel) Then Return ""
+	If $aSel[0] < 1 Then Return ""
+	Return _GUICtrlListView_GetItemText($hAssocLV, $aSel[1], 0)
+EndFunc
+
+Func _RefreshAssocGUI($sSelect = "")
+	Local $section, $aNames, $i, $idx, $sOpt, $sSel = $sSelect, $iSel = -1
+
+	If $sSel = "" Then $sSel = _AssocSelected() ; keep the selection
 	$section = _ReadINISections() ; get sections
-	For $i = 1 To $section[0]
-		_ArrayAdd($aListdata, $section[$i])
-		If Number(IniRead($associni, $section[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then $aListdata[$i] &= " **" ; mark disabled associations
+	$aNames = $section
+	_ArraySort($aNames, 0, 1)
+	_GUICtrlListView_BeginUpdate($hAssocLV)
+	_GUICtrlListView_DeleteAllItems($hAssocLV)
+	For $i = 1 To $aNames[0]
+		$idx = _GUICtrlListView_AddItem($hAssocLV, $aNames[$i])
+		_GUICtrlListView_AddSubItem($hAssocLV, _AssocTargets($aNames[$i]), $idx, 1)
+		$sOpt = ""
+		If _AssocFlag($aNames[$i], "single") Then $sOpt = _AssocJoin($sOpt, "Single")
+		If _AssocFlag($aNames[$i], "admin") Then $sOpt = _AssocJoin($sOpt, "Admin")
+		_GUICtrlListView_AddSubItem($hAssocLV, $sOpt, $idx, 2)
+		If Number(IniRead($associni, $aNames[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then
+			_GUICtrlListView_AddSubItem($hAssocLV, "Disabled", $idx, 3)
+		Else
+			_GUICtrlListView_AddSubItem($hAssocLV, "Enabled", $idx, 3)
+		EndIf
+		If $aNames[$i] = $sSel Then $iSel = $idx
 	Next
-	_ArraySort($aListdata, 0, 1)
-	GUICtrlSetData($lSec, "|" & _ArrayToString($aListdata, "|", 1)) ; set control data
+	If $iSel = -1 And $aNames[0] > 0 Then $iSel = 0 ; nothing selected before: first entry
+	If $iSel >= 0 Then _GUICtrlListView_SetItemSelected($hAssocLV, $iSel, True, True)
+	_GUICtrlListView_EndUpdate($hAssocLV)
+EndFunc
+
+Func _AssocClearForm()
 	GUICtrlSetData($iSec, "")
 	GUICtrlSetData($iMode, "")
 	GUICtrlSetData($iTitle, "")
@@ -1118,10 +1185,51 @@ Func _RefreshAssocGUI()
 	_AssocUpdateControls()
 EndFunc
 
-Func _GetAssocInfo()
-	Local $tSec, $tMode, $tTitle, $tCommand, $tDrive, $tFolder, $sDisabled, $sIcon, $aIcon, $sRaw
+Func _AssocOpenEditor()
+	GUISetState(@SW_DISABLE, $aGUI) ; disable the list while the editor is open
+	GUISetState(@SW_SHOW, $eGUI)
+	GUICtrlSetState($iSec, $GUI_FOCUS)
+EndFunc
 
-	$tSec = StringReplace(GUICtrlRead($lSec), ' **', '') ; get selection, remove ' **'
+Func _AssocAdd()
+	_AssocClearForm()
+	$sEditName = ""
+	WinSetTitle($eGUI, "", "Add Association")
+	_AssocOpenEditor()
+EndFunc
+
+Func _AssocEdit()
+	Local $tSec = _AssocSelected()
+	If $tSec = "" Then
+		MsgBox(0 + 64, "Edit Association", "Select an association in the list first.", 0, $aGUI)
+		Return
+	EndIf
+	_AssocClearForm()
+	_GetAssocInfo($tSec) ; load the details
+	$sEditName = $tSec
+	WinSetTitle($eGUI, "", "Edit Association - " & $tSec)
+	_AssocOpenEditor()
+EndFunc
+
+Func _AssocDblClick()
+	AdlibUnRegister("_AssocDblClick")
+	If _AssocSelected() <> "" Then _AssocEdit()
+EndFunc
+
+Func _AssocEditorClose($sSelect = "")
+	GUISetState(@SW_HIDE, $eGUI)
+	GUISetState(@SW_ENABLE, $aGUI)
+	WinActivate($aGUI)
+	_RefreshAssocGUI($sSelect)
+EndFunc
+
+Func _AssocCancel()
+	_AssocEditorClose()
+EndFunc
+
+Func _GetAssocInfo($tSec)
+	Local $tMode, $tTitle, $tCommand, $tDrive, $tFolder, $sDisabled, $sIcon, $aIcon, $sRaw
+
 	$tMode = IniRead($associni, $tSec, "mode", "") ; read INI data
 	$tTitle = IniRead($associni, $tSec, "title", "")
 	$tCommand = ""
@@ -1162,11 +1270,11 @@ Func _SaveAssocSection()
 
 	$tSec = StringStripWS(GUICtrlRead($iSec), 8) ; get section to save, no spaces
 	If $tSec = "" Then
-		MsgBox(0 + 48, "Error", "Association Name cannot be blank.", 0, $aGUI)
+		MsgBox(0 + 48, "Error", "Association Name cannot be blank.", 0, $eGUI)
 		Return
 	EndIf
 	If StringInStr($tSec, '*') Or StringInStr($tSec, ',') Then
-		MsgBox(0 + 48, "Error", "Association Name cannot contain ',' or '*' characters.", 0, $aGUI)
+		MsgBox(0 + 48, "Error", "Association Name cannot contain ',' or '*' characters.", 0, $eGUI)
 		Return
 	EndIf
 
@@ -1183,13 +1291,13 @@ Func _SaveAssocSection()
 		Switch StringLower($aChk[$i])
 			Case "file", "files", "folder", "folders", "drive", "drives", "recycle", "background"
 				MsgBox(0 + 48, "Error", "'" & $aChk[$i] & "' is not a file extension." & @CRLF & _
-						"Use the tick boxes (Files, Folders, Drives, Recycle Bin, Background) for these targets.", 0, $aGUI)
+						"Use the tick boxes (Files, Folders, Drives, Recycle Bin, Background) for these targets.", 0, $eGUI)
 				Return
 		EndSwitch
 	Next
 	$bUsesMain = ($bFiles Or $bRecycle Or $bBackground Or $tMode <> "") ; targets that use the main Command
 	If Not $bUsesMain And Not $bFolders And Not $bDrives Then
-		MsgBox(0 + 48, "Error", "Select at least one target: enter file extensions or tick Files, Folders, Drives, Recycle Bin or Background.", 0, $aGUI)
+		MsgBox(0 + 48, "Error", "Select at least one target: enter file extensions or tick Files, Folders, Drives, Recycle Bin or Background.", 0, $eGUI)
 		Return
 	EndIf
 
@@ -1203,46 +1311,46 @@ Func _SaveAssocSection()
 	If Not $bUsesMain Then
 		$tCommand = "" ; only folders / drives: they use their own commands
 		If $bDrives And $tDrive = "" Then
-			MsgBox(0 + 48, "Error", "Drive Command cannot be blank when the association is only for drives (and folders).", 0, $aGUI)
+			MsgBox(0 + 48, "Error", "Drive Command cannot be blank when the association is only for drives (and folders).", 0, $eGUI)
 			Return
 		EndIf
 		If $bFolders And $tFolder = "" Then
-			MsgBox(0 + 48, "Error", "Folder Command cannot be blank when the association is only for folders (and drives).", 0, $aGUI)
+			MsgBox(0 + 48, "Error", "Folder Command cannot be blank when the association is only for folders (and drives).", 0, $eGUI)
 			Return
 		EndIf
 	ElseIf StringStripWS($tCommand, 8) = "" Then
-		MsgBox(0 + 48, "Error", "Command cannot be blank.", 0, $aGUI)
+		MsgBox(0 + 48, "Error", "Command cannot be blank.", 0, $eGUI)
 		Return
 	EndIf
 
-	IniReadSection($associni, $tSec) ; check if section exists and warn
-	If Not @error Then
-		If 7 = MsgBox(4 + 32 + 256, "Save INI Section", "Section exists.  Overwrite?", 0, $aGUI) Then Return
+	IniReadSection($associni, $tSec) ; an association with this name already exists?
+	If Not @error And $tSec <> $sEditName Then ; (editing an association keeps its own name)
+		If 7 = MsgBox(4 + 32 + 256, "Save Association", "An association named '" & $tSec & "' already exists." & @CRLF & "Overwrite it?", 0, $eGUI) Then Return
 	EndIf
 
 	$tTitle = GUICtrlRead($iTitle)
 	If GUICtrlRead($iAssocIcon) <> "" And Not FileExists(GUICtrlRead($iAssocIcon)) Then
-		MsgBox(48, "Context-menu icon", "The selected icon file does not exist:" & @CRLF & GUICtrlRead($iAssocIcon), 0, $aGUI)
+		MsgBox(48, "Context-menu icon", "The selected icon file does not exist:" & @CRLF & GUICtrlRead($iAssocIcon), 0, $eGUI)
 		Return
 	EndIf
 	If $tCommand <> "" Then
 		$atCommand = _CommandSplit($tCommand)
 		If StringInStr($atCommand[0], "%") Then
-			MsgBox(0 + 48, "Error", "Command cannot use environment variables.", 0, $aGUI)
+			MsgBox(0 + 48, "Error", "Command cannot use environment variables.", 0, $eGUI)
 			Return
 		EndIf
 	EndIf
 	If $tDrive <> "" Then
 		$atCommand = _CommandSplit($tDrive)
 		If StringInStr($atCommand[0], "%") Then
-			MsgBox(0 + 48, "Error", "Drive Command cannot use environment variables.", 0, $aGUI)
+			MsgBox(0 + 48, "Error", "Drive Command cannot use environment variables.", 0, $eGUI)
 			Return
 		EndIf
 	EndIf
 	If $tFolder <> "" Then
 		$atCommand = _CommandSplit($tFolder)
 		If StringInStr($atCommand[0], "%") Then
-			MsgBox(0 + 48, "Error", "Folder Command cannot use environment variables.", 0, $aGUI)
+			MsgBox(0 + 48, "Error", "Folder Command cannot use environment variables.", 0, $eGUI)
 			Return
 		EndIf
 	EndIf
@@ -1283,7 +1391,8 @@ Func _SaveAssocSection()
 	IniWrite($associni, $tSec, "disabled", $sDisabled) ; 1 = checked, 4 = unchecked
 	_AssocWriteFlag($tSec, "single", _IsChk($singleChk))
 	_AssocWriteFlag($tSec, "admin", _IsChk($runAdminChk)) ; run as administrator ; single selected item only
-	_RefreshAssocGUI()
+	If $sEditName <> "" And $sEditName <> $tSec Then IniDelete($associni, $sEditName) ; renamed: remove the old entry
+	_AssocEditorClose($tSec) ; back to the list, the saved association is selected
 EndFunc
 
 Func _ParseAssocIcon($sIcon)
@@ -1328,24 +1437,27 @@ Func _BrowseAssocIcon()
 		If StringInStr($sPath, ",") Then $sPath = StringLeft($sPath, StringInStr($sPath, ",", 0, -1) - 1)
 		If FileExists($sPath) Then $sInitial = $sPath
 	EndIf
-	$sPath = FileOpenDialog("Choose context-menu icon", $sInitial, "Icon and resource files (*.ico;*.exe;*.dll)|All files (*.*)", 1, "", $aGUI)
+	$sPath = FileOpenDialog("Choose context-menu icon", $sInitial, "Icon and resource files (*.ico;*.exe;*.dll)|All files (*.*)", 1, "", $eGUI)
 	If @error Then Return
 	GUICtrlSetData($iAssocIcon, $sPath)
 	_UpdateAssocIconPreview()
 EndFunc
 
 Func _DeleteAssocSection()
-	Local $tSec = StringReplace(GUICtrlRead($lSec), ' **', '') ; get selection, remove ' **'
-	If $tSec = "" Then Return ; no selection
+	Local $tSec = _AssocSelected()
+	If $tSec = "" Then
+		MsgBox(0 + 64, "Delete Association", "Select an association in the list first.", 0, $aGUI)
+		Return
+	EndIf
 
 	Local $sections = _ReadINISections()
 	If $sections[0] = 1 Then ; last section, do not allow deletion
 		MsgBox(0 + 48, "Error", "You cannot delete the last file association." & @CRLF & _
-								"Please add another association before deleting this one.", 0, $aGUI)
+							"Please add another association before deleting this one.", 0, $aGUI)
 		Return
 	EndIf
 
-	If 7 = MsgBox(4 + 32 + 256, "Delete INI Section", "Are you sure?", 0, $aGUI) Then Return ; confirmation
+	If 7 = MsgBox(4 + 32 + 256, "Delete Association", "Delete the association '" & $tSec & "'?", 0, $aGUI) Then Return ; confirmation
 	IniDelete($associni, $tSec) ; delete INI section
 	_RefreshAssocGUI()
 EndFunc
@@ -1356,14 +1468,16 @@ Func _AssocHelp() ; help: the Readme is embedded in this program (_ReadmeText), 
 		GUICtrlSendMsg($rdEdit, 0xB1, 0, 0) ; EM_SETSEL: nothing selected
 		$fReadmeLoaded = True
 	EndIf
-	GUISetState(@SW_DISABLE, $aGUI)
+	$hReadmeBack = $aGUI ; the list window, or the editor when it is open
+	If BitAND(WinGetState($eGUI), 2) Then $hReadmeBack = $eGUI
+	GUISetState(@SW_DISABLE, $hReadmeBack)
 	GUISetState(@SW_SHOW, $rdGUI)
 EndFunc
 
 Func _ReadmeClose()
 	GUISetState(@SW_HIDE, $rdGUI)
-	GUISetState(@SW_ENABLE, $aGUI)
-	WinActivate($aGUI)
+	GUISetState(@SW_ENABLE, $hReadmeBack)
+	WinActivate($hReadmeBack)
 EndFunc
 
 Func _BrowseCommand()
@@ -1664,11 +1778,19 @@ Func _RestoreIconPos($iconArray)
 	Next
 EndFunc
 
+Func _MY_WM_NOTIFY($hWnd, $Msg, $wParam, $lParam)
+	#forceref $Msg, $wParam
+	If $hWnd <> $aGUI Then Return $GUI_RUNDEFMSG
+	Local $tNMHDR = DllStructCreate("hwnd hWndFrom;uint_ptr IDFrom;int Code", $lParam)
+	If DllStructGetData($tNMHDR, "hWndFrom") = $hAssocLV And DllStructGetData($tNMHDR, "Code") = -3 Then AdlibRegister("_AssocDblClick", 10) ; NM_DBLCLK: open the editor outside of the message handler
+	Return $GUI_RUNDEFMSG
+EndFunc
+
 Func _MY_WM_COMMAND($hWnd, $Msg, $wParam, $lParam)
 	#forceref $Msg, $lParam
 	Local $message, $ctrlid
 
-	If $hWnd = $tGUI Or $hWnd = $aGUI Then
+	If $hWnd = $tGUI Or $hWnd = $eGUI Then
 		$message = BitShift($wParam, 16) ; high word of $wParam = notification msg
 		$ctrlid = BitAnd($wParam, 0x0000FFFF) ; low word of $wParam = ctrlid
 		If $message = $EN_CHANGE Then
@@ -3170,9 +3292,28 @@ Func _ThemeSetWT($h, $sTheme)
 	EndIf
 EndFunc
 
+Func _ThemeListView($hLV)
+	Local $hHdr = _GUICtrlListView_GetHeader($hLV)
+	If $fDark Then
+		_ThemeSetWT($hLV, "DarkMode_Explorer")
+	Else
+		_ThemeSetWT($hLV, "")
+	EndIf
+	If $hHdr Then
+		If $fDark Then
+			_ThemeSetWT($hHdr, "DarkMode_ItemsView")
+		Else
+			_ThemeSetWT($hHdr, "ItemsView")
+		EndIf
+	EndIf
+	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1001, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETBKCOLOR
+	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1026, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETTEXTBKCOLOR
+	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1024, "wparam", 0, "lparam", _BGR($iTextCol)) ; LVM_SETTEXTCOLOR
+EndFunc
+
 Func _ThemeApply($hOnly = 0)
 	; $hOnly = 0: all main GUIs (+ tray/menus, SendTo list, icons); otherwise only the given GUI (e.g. a dialog)
-	Local $aTargets[6] = [$nGUI, $aGUI, $tGUI, $sGUI, $stGUI, $rdGUI], $iCount = 6
+	Local $aTargets[7] = [$nGUI, $aGUI, $tGUI, $sGUI, $stGUI, $rdGUI, $eGUI], $iCount = 7
 	Local $sBtn = "", $sEdit = "", $sList = "", $sClassic = ""
 	Local $id, $iMax, $h, $sClass, $iStyle, $iType, $j, $aRet, $bMuted, $iBk, $iVal = 0, $hHdr
 	If $hOnly Then
@@ -3268,23 +3409,9 @@ Func _ThemeApply($hOnly = 0)
 				GUICtrlSetColor($aMutedLbl[$j][0], $aMutedLbl[$j][1])
 			EndIf
 		Next
-		; SendTo list view (not an AutoIt control)
-		If $fDark Then
-			_ThemeSetWT($hsLV, "DarkMode_Explorer")
-		Else
-			_ThemeSetWT($hsLV, "")
-		EndIf
-		$hHdr = _GUICtrlListView_GetHeader($hsLV)
-		If $hHdr Then
-			If $fDark Then
-				_ThemeSetWT($hHdr, "DarkMode_ItemsView")
-			Else
-				_ThemeSetWT($hHdr, "ItemsView")
-			EndIf
-		EndIf
-		DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hsLV, "uint", 0x1001, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETBKCOLOR
-		DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hsLV, "uint", 0x1026, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETTEXTBKCOLOR
-		DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hsLV, "uint", 0x1024, "wparam", 0, "lparam", _BGR($iTextCol)) ; LVM_SETTEXTCOLOR
+		; list views (not AutoIt controls): SendTo list, association list
+		_ThemeListView($hsLV)
+		_ThemeListView($hAssocLV)
 		; profile action icons in the matching colour (black on light, white on dark)
 		_ProfileIconsReload()
 	EndIf
@@ -3517,7 +3644,7 @@ EndFunc
 ;=======================================================================================
 ; Update checker.  Reads the latest version from .github/version.pfa (GitHub, main branch), the file only contains the
 ; version number (ie 3.0.0.5).  If it is newer than the running version, a message offers the release page
-;   https://github.com/ShihabUddinX/PortableFileAssociator/releases/tag/<version>
+;   https://github.com/ShihabUddinX/FileAssociatorPortable/releases/tag/<version>
 ; Source 1 is the GitHub API (changes show up within seconds), source 2 is raw.githubusercontent.com (fallback, GitHub
 ; caches that for about 5 minutes).  The request is asynchronous (the program does not wait for the network), the main
 ; loop polls it (_UpdatePoll).
@@ -4030,6 +4157,22 @@ Func _ReadmeText()
 	$s &= "" & @CRLF
 	$s &= "Associations:" & @CRLF
 	$s &= "=============" & @CRLF
+	$s &= "The Associations button opens a list of all associations of the active profile (columns Name, Targets," & @CRLF
+	$s &= "Options, State).  Select an entry and use the buttons below the list:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Add    = Opens the ""Add Association"" window to create a new association." & @CRLF
+	$s &= "Delete = Deletes the selected association (asks first).  The last association cannot be deleted." & @CRLF
+	$s &= "Edit   = Opens the ""Edit Association"" window for the selected entry.  A double-click on an entry does the same." & @CRLF
+	$s &= "Close  = Closes the list." & @CRLF
+	$s &= "?      = Opens this Readme." & @CRLF
+	$s &= "" & @CRLF
+	$s &= "The Add / Edit window groups the details of one association:  General (name, extensions), Also add to" & @CRLF
+	$s &= "(Files, Folders, Drives, Recycle Bin, Background), Options (Disabled, Single file type, Run as Admin)," & @CRLF
+	$s &= "Context menu (title, icon) and Commands (Command, Drive Command, Folder Command).  Save stores the" & @CRLF
+	$s &= "association and returns to the list, Cancel closes the window without saving.  The name can be changed" & @CRLF
+	$s &= "in Edit (the entry is renamed).  If another association already has that name you are asked before it is" & @CRLF
+	$s &= "overwritten.  The fields are:" & @CRLF
+	$s &= "" & @CRLF
 	$s &= "Association Name = The name of the association as recorded in the GUI list and INI file." & @CRLF
 	$s &= "                   It cannot include the characters ',' or '*'." & @CRLF
 	$s &= "" & @CRLF
@@ -4153,14 +4296,10 @@ Func _ReadmeText()
 	$s &= "                          is the only target, ""%1"" otherwise.  In the Folder Command it inserts ""%1""." & @CRLF
 	$s &= "                          In the Drive Command it inserts %1." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Clear = Clear all fields." & @CRLF
+	$s &= "Save = Save the association and return to the list.  Asks before overwriting another association that" & @CRLF
+	$s &= "       has the same name." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Save = Save any association changes.  Must be done after each change.  Asks before overwriting an" & @CRLF
-	$s &= "       existing association." & @CRLF
-	$s &= "" & @CRLF
-	$s &= "Delete = Delete selected association.  The last association cannot be deleted." & @CRLF
-	$s &= "" & @CRLF
-	$s &= "Done = Closes the association dialog." & @CRLF
+	$s &= "Cancel = Close the Add / Edit window without saving." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "? = Opens this Readme in a window.  The Readme is built into the program, no Readme file is needed." & @CRLF
 	$s &= "" & @CRLF
@@ -4318,6 +4457,7 @@ Func _ReadmeText()
 	$s &= "" & @CRLF
 	$s &= "Check for updates on startup = Looks for a newer version in the background each time PFA starts (a message" & @CRLF
 	$s &= "        is only shown when a newer version exists).  The tray menu item ""Check for updates"" checks at any time." & @CRLF
+	$s &= "        (Releases: github.com/ShihabUddinX/FileAssociatorPortable)" & @CRLF
 	$s &= "        settings.ini:  checkupdateonstartup=true | false" & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Start minimized = On: PFA starts minimized to the tray.  Off: the main window is shown." & @CRLF

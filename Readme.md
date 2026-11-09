@@ -42,6 +42,18 @@ Take your file associations with you. Open local files with your portable applic
 
 ## Associations
 
+The **Associations** button opens a list of all associations of the active profile (columns *Name*, *Targets*, *Options*, *State*). Select an entry and use the buttons below the list:
+
+| Button | Action |
+|---|---|
+| **Add** | Opens the **Add Association** window to create a new association. |
+| **Delete** | Deletes the selected association (asks first). The last association cannot be deleted. |
+| **Edit** | Opens the **Edit Association** window for the selected entry. A double-click on an entry does the same. |
+| **Close** | Closes the list. |
+| **?** | Opens this Readme. |
+
+The Add / Edit window groups the details of one association: **General** (name, extensions), **Also add to** (Files, Folders, Drives, Recycle Bin, Background), **Options** (Disabled, Single file type, Run as Admin), **Context menu** (title, icon) and **Commands** (Command, Drive Command, Folder Command). **Save** stores the association and returns to the list, **Cancel** closes the window without saving. The name can be changed in Edit (the entry is renamed). If another association already has that name you are asked before it is overwritten. The fields are:
+
 | Field | Description |
 |---|---|
 | **Association Name** | The name of the association as recorded in the GUI list and INI file. It cannot include the characters `,` or `*`. |
@@ -176,10 +188,8 @@ Drive Command:  "E:\PortableApps\TerminalPortable\TerminalPortable.exe" -d %1
 | **...** (next to Command) | Browse for the program. Inserts `"%V"` when Background is the only target, otherwise `"%1"`. |
 | **...** (next to Folder Command) | Browse for the program. Inserts `"%1"`. |
 | **...** (next to Drive Command) | Browse for the program. Inserts `%1`. |
-| **Clear** | Clear all fields. |
-| **Save** | Save association changes. Must be done after each change. Asks before overwriting an existing association. |
-| **Delete** | Delete the selected association. The last association cannot be deleted. |
-| **Done** | Close the association dialog. |
+| **Save** | Save the association and return to the list. Asks before overwriting another association that has the same name. |
+| **Cancel** | Close the Add / Edit window without saving. |
 | **?** | Open this Readme in a window. The Readme is built into the program, no Readme file is needed. |
 
 ### INI format
@@ -291,7 +301,7 @@ Click the **gear icon** at the bottom right of the main window. Every option is 
 | **Theme** | **System** follows the Windows app theme, **Light** is always light, **Dark** is always dark (window and title bar, text, inputs, lists, buttons, tray menu, icons). | `theme=system \| light \| dark` |
 | **Add associations on start** | The associations of the last active profile are added automatically when PFA is started without command line arguments. | `addassociationonstart=true \| false` |
 | **Remove associations on exit** | The file associations are removed again when PFA is closed (Exit, close button, Windows shutdown). On by default. | `removeonexit=true \| false` |
-| **Check for updates on startup** | Looks for a newer version in the background each time PFA starts (a message only appears when a newer version exists). The tray item **Check for updates** checks at any time. | `checkupdateonstartup=true \| false` |
+| **Check for updates on startup** | Looks for a newer version in the background each time PFA starts (a message only appears when a newer version exists). The tray item **Check for updates** checks at any time (releases: `github.com/ShihabUddinX/FileAssociatorPortable`). | `checkupdateonstartup=true \| false` |
 | **Start minimized** | On: PFA starts minimized to the tray. Off: the main window is shown. | `startminimized=true \| false` |
 | **Disable splash screen** | No splash screen when PFA starts. | `DisableSplash=true` in `FileAssociatorPortable.ini` |
 | **Close button (X) minimizes to the tray** | The close button hides the window in the tray instead of exiting (use the tray item **Exit** to quit). Off by default. | `closetotray=true \| false` |
