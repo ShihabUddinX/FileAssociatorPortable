@@ -2,7 +2,7 @@
 
 *(formerly PortableFileAssociator)*
 
-**Version 3.0.0.5**
+**Version 3.0.0.6**
 
 **Owner / Trademark:** ShihabUddinX · Original work by Erik Pilsits
 
@@ -35,28 +35,29 @@ Take your file associations with you. Open local files with your portable applic
 | **Create System Restore Point** | Creates a Windows restore point (see [System Restore](#system-restore)). |
 | **Profile** | Profile selection and profile buttons (see [Profile](#profile)). |
 | **Settings** (gear icon, bottom right) | Theme, start and exit options, update check, splash screen (see [Settings](#settings)). |
-| **Version** | The version number (e.g. `v3.0.0.5`) is shown at the bottom left of the main window. It is also the file version of `FileAssociatorPortable.exe`. |
+| **Version** | The version number (e.g. `v3.0.0.6`) is shown at the bottom left of the main window. It is also the file version of `FileAssociatorPortable.exe`. |
 | **Owner** | ShihabUddinX (owner and trademark). Also written in the file properties of `FileAssociatorPortable.exe` (Company, Legal copyright, Legal trademarks). Original work by Erik Pilsits. |
 
 ---
 
 ## Associations
 
-The **Associations** button opens a list of all associations of the active profile (columns *Name*, *Targets*, *Options*, *State*). Select an entry and use the buttons below the list:
+The **Associations** button opens a list of all associations of the active profile (columns *Name* with the icon of the entry, *Group*, *Targets*, *Options*, *State*). Select an entry and use the buttons below the list:
 
 | Button | Action |
 |---|---|
 | **Add** | Opens the **Add Association** window to create a new association. |
 | **Delete** | Deletes the selected association (asks first). The last association cannot be deleted. |
 | **Edit** | Opens the **Edit Association** window for the selected entry. A double-click on an entry does the same. |
+| **Groups...** | Opens the group manager (see [Groups](#groups)). |
 | **Close** | Closes the list. |
 | **?** | Opens this Readme. |
 
-The Add / Edit window groups the details of one association: **General** (name, extensions), **Also add to** (Files, Folders, Drives, Recycle Bin, Background), **Options** (Disabled, Single file type, Run as Admin), **Context menu** (title, icon) and **Commands** (Command, Drive Command, Folder Command). **Save** stores the association and returns to the list, **Cancel** closes the window without saving. The name can be changed in Edit (the entry is renamed). If another association already has that name you are asked before it is overwritten. The fields are:
+The Add / Edit window groups the details of one association: **General** (name, extensions), **Also add to** (Files, Folders, Drives, Recycle Bin, Background), **Options** (Disabled, Single file type, Run as Admin), **Context menu** (title, icon) and **Commands** (Command, Drive Command, Folder Command). The **Group** drop-down puts the entry in a [group](#groups). **Save** stores the association and returns to the list, **Cancel** closes the window without saving. The name can be changed in Edit (the entry is renamed). If another association already has that name you are asked before it is overwritten. The fields are:
 
 | Field | Description |
 |---|---|
-| **Association Name** | The name of the association as recorded in the GUI list and INI file. It cannot include the characters `,` or `*`. |
+| **Association Name** | The name of the association as recorded in the GUI list and INI file. It cannot include the characters `,` or `*` and cannot start with `@`. |
 | **Associated Types** | File **extensions only**, separated by `\|`, e.g. `txt\|log\|ini` (do not include the period). Disabled while **Files** is ticked. |
 | **Also add to** | Five tick boxes for the special targets (see below). |
 | **Single file type** | Show the association only when **one** item is selected. With several items selected the entry is hidden. |
@@ -192,6 +193,22 @@ Drive Command:  "E:\PortableApps\TerminalPortable\TerminalPortable.exe" -d %1
 | **Cancel** | Close the Add / Edit window without saving. The close button (X) of that window does the same. |
 | **?** | Open this Readme in a window. The Readme is built into the program, no Readme file is needed. |
 
+### Groups
+
+Entries can be put in a group. A group has a **name** and an **icon**. All entries of a group are shown in **one submenu** of the context menu with the name and icon of the group; entries without a group are shown directly in the context menu.
+
+| Control | Description |
+|---|---|
+| **Groups...** (list window or Add / Edit window) | Opens the group manager: a list of the groups (icon, name, number of entries) with **Add**, **Delete**, **Edit** and **Close**. |
+| **Add / Edit** (group) | A group gets its name and an optional icon (`.ico`, `.exe` or `.dll`, with *Browse* and an icon index). Renaming a group moves its entries to the new name. |
+| **Delete** (group) | Deletes the group. Its entries are not deleted, they are shown directly again. |
+| **Group** drop-down (Add / Edit window) | `(none)` or one of the groups. |
+
+- The submenu is used for every target of the entry (files, folders, drives, background, recycle bin and file extensions). Entries of different associations can share a group.
+- For a file extension an entry in a group has **no default (double-click) action**: the double-click action needs a verb that is not in a submenu, so it is not offered under *Default PFA Association* in the File Types window.
+- The submenu is only shown for several selected items when at least one of its entries is not *Single file type*.
+- Groups are stored in the association INI as `[@group:<name>]` (`icon=<path,index>`), the group of an association as `group=<name>`, so profiles (Clone, Rename) keep their groups.
+
 ### INI format
 
 Associations are stored in `Data\settings\<profile>_assoc.ini`, one section per association:
@@ -283,7 +300,7 @@ Settings are stored per profile in `Data\settings\<profile>_assoc.ini`, `_state.
 | Control | Description |
 |---|---|
 | **Dropdown** | Displays the active profile. Switch profiles by choosing a new one. |
-| **New** | Create a new profile. |
+| **New** | Create a new profile (the name is asked in a window that follows the theme). |
 | **Clone** | Create a copy of an existing profile. |
 | **Rename** | Rename the active profile. |
 | **Remove** | Remove the active profile. This action cannot be undone. |
@@ -296,7 +313,7 @@ The profile buttons are icons (New, Clone, Rename, Remove). They are greyed out 
 
 ## Settings
 
-Click the **gear icon** at the bottom right of the main window. Every option is saved as soon as it is changed (no Save button). They are stored in `Data\settings\settings.ini` (`[settings]` section), the splash screen option in `FileAssociatorPortable.ini` next to the exe. `Data\settings\profile.ini` only keeps profile data (`[profile] active=<last used profile>`).
+Click the **gear icon** at the bottom right of the main window (or **Settings** in the tray menu). **Done** saves the options, **Cancel** and the close button (X) discard the changes (a theme chosen in the window is shown at once as a preview and undone by Cancel). They are stored in `Data\settings\settings.ini` (`[settings]` section), the splash screen option in `FileAssociatorPortable.ini` next to the exe. `Data\settings\profile.ini` only keeps profile data (`[profile] active=<last used profile>`).
 
 | Option | Description | Saved as |
 |---|---|---|
