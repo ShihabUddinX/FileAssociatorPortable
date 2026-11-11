@@ -2,7 +2,7 @@
 
 *(formerly PortableFileAssociator)*
 
-**Version 3.0.0.6**
+**Version 3.0.0.7**
 
 **Owner / Trademark:** ShihabUddinX · Original work by Erik Pilsits
 
@@ -35,7 +35,7 @@ Take your file associations with you. Open local files with your portable applic
 | **Create System Restore Point** | Creates a Windows restore point (see [System Restore](#system-restore)). |
 | **Profile** | Profile selection and profile buttons (see [Profile](#profile)). |
 | **Settings** (gear icon, bottom right) | Theme, start and exit options, update check, splash screen (see [Settings](#settings)). |
-| **Version** | The version number (e.g. `v3.0.0.6`) is shown at the bottom left of the main window. It is also the file version of `FileAssociatorPortable.exe`. |
+| **Version** | The version number (e.g. `v3.0.0.7`) is shown at the bottom left of the main window. It is also the file version of `FileAssociatorPortable.exe`. |
 | **Owner** | ShihabUddinX (owner and trademark). Also written in the file properties of `FileAssociatorPortable.exe` (Company, Legal copyright, Legal trademarks). Original work by Erik Pilsits. |
 
 ---
@@ -394,6 +394,8 @@ FileAssociatorPortable.exe add_gui DefaultProfile   (this profile)
 
 Without command line arguments the [Settings](#settings) decide: **Add associations on start** adds the associations of the last active profile, **Start minimized** starts the GUI in the tray. Older versions used `commandline=add_gui` in `Data\Settings\profile.ini` for this; that line is no longer read (it is taken over into the Settings automatically). A launcher that can pass arguments can still use the command line above.
 
+**Single instance:** only one copy of the program runs at a time. If `FileAssociatorPortable.exe` is started again while it is running (also when it is hidden in the tray or minimized), no second copy is started: the running program shows its main window and comes to the front (an open dialog is brought to the front). This also works when the running program was started as administrator.
+
 If PFA is already running, one command line parameter is available:
 
 | Value | Action |
@@ -406,16 +408,15 @@ If PFA is already running, one command line parameter is available:
 
 ## Windows versions
 
-FileAssociatorPortable works on **Windows XP to Windows 11**. To run on Windows XP the program must be compiled with **AutoIt 3.3.14.5 (32 bit)**. What differs:
+FileAssociatorPortable works on **Windows 7 to Windows 11** (Windows 7 is the minimum; on older Windows the program shows a message and closes). What differs:
 
 | Windows | Dark theme |
 |---|---|
-| XP, Vista, 7, 8 | Colors the windows, text, inputs and lists. Buttons, combo boxes, scroll bars, the title bar and the menus keep the Windows look (light). |
+| 7, 8 | Colors the windows, text, inputs and lists. Buttons, combo boxes, scroll bars, the title bar and the menus keep the Windows look (light). |
 | 10 (1903 and newer), 11 | Also uses the dark Windows styles for buttons, combo boxes, scroll bars, menus and the title bar. |
 
 - Theme **System** follows the app theme of Windows (Windows 10 / 11). When it is changed while the program is running, the program follows at once, no restart is needed.
 - The dark Windows styles are called through undocumented functions of Windows 10. They are only used from Windows 10 1903 (build 18362); calling them on older Windows crashes the program. To switch them off on every Windows add `darkmodeapi=false` to the `[settings]` section of `Data\settings\settings.ini` (the Dark theme then only uses colors).
-- Windows XP has no Segoe UI / Consolas fonts: the default font and Courier New are used.
 
 ## Known issues / notes
 

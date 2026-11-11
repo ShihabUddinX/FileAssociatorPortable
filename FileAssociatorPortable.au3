@@ -8,8 +8,8 @@
 #AutoIt3Wrapper_Res_Description=FileAssociatorPortable
 #AutoIt3Wrapper_Res_ProductName=FileAssociatorPortable
 #AutoIt3Wrapper_Res_CompanyName=ShihabUddinX
-#AutoIt3Wrapper_Res_Fileversion=3.0.0.6
-#AutoIt3Wrapper_Res_ProductVersion=3.0.0.6
+#AutoIt3Wrapper_Res_Fileversion=3.0.0.7
+#AutoIt3Wrapper_Res_ProductVersion=3.0.0.7
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright (c) ShihabUddinX. Original work by Erik Pilsits
 #AutoIt3Wrapper_Res_LegalTrademarks=ShihabUddinX
 #AutoIt3Wrapper_Res_Field=Owner|ShihabUddinX
@@ -23,8 +23,8 @@
 #Obfuscator_Parameters=/sf=1 /sv=1 /om /cs=0 /cn=0
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 ; File properties (Details tab of the exe).  The #pragma lines work with Aut2Exe too, the AutoIt3Wrapper lines above only with SciTE4AutoIt.
-#pragma compile(FileVersion, 3.0.0.6)
-#pragma compile(ProductVersion, 3.0.0.6)
+#pragma compile(FileVersion, 3.0.0.7)
+#pragma compile(ProductVersion, 3.0.0.7)
 #pragma compile(FileDescription, FileAssociatorPortable)
 #pragma compile(ProductName, FileAssociatorPortable)
 #pragma compile(InternalName, FileAssociatorPortable)
@@ -62,7 +62,7 @@ Opt("TrayOnEventMode", 1) ; enable tray events
 Opt("MustDeclareVars", 1) ; must declare variables before use
 Opt("WinTitleMatchMode", 3) ; exact title match
 
-Global Const $version = "3.0.0.6"
+Global Const $version = "3.0.0.7"
 ; update checker (see "Update checker" region)
 Global Const $UPDATE_VERSION_URL = "https://raw.githubusercontent.com/ShihabUddinX/FileAssociatorPortable/main/.github/version.pfa"
 Global Const $UPDATE_RELEASE_URL = "https://github.com/ShihabUddinX/FileAssociatorPortable/releases/tag/"
@@ -70,7 +70,13 @@ Global Const $UPDATE_API_URL = "https://api.github.com/repos/ShihabUddinX/FileAs
 Global $oUpdate = 0, $hUpdateTimer = 0, $fUpdateManual = False, $iUpdateComErr = 0, $iUpdateStage = 0, $trayupdate
 
 #Region Commandline
-Global $wndMSG, $wndMSG_msg = -1
+Global $wndMSG, $wndMSG_msg = -1, $hMutex = 0
+
+; Windows 7 (build 7600) is the oldest supported Windows
+If _OSBuildNumber() < 7600 Then
+	MsgBox(16, "FileAssociatorPortable", "FileAssociatorPortable needs Windows 7 or newer.")
+	Exit
+EndIf
 
 ; multi-file launcher: started by Explorer for commands that use %%1 (see "Multi-file launcher" region)
 If $CmdLine[0] > 1 Then
@@ -86,14 +92,23 @@ EndIf
 
 $wndMSG = _WinAPI_RegisterWindowMessage("PFA_CustomWindowMessage")
 
-If _CreateMutex() <> 0 Then
-	; second instance = commandline mode
+; single instance: when the program is already running no second one is started, the running one shows its main window
+If _AlreadyRunning() Then
+	Local $iForward = 1 ; 1 = show the main window of the running program
 	If $CmdLine[0] > 0 Then
 		Switch $CmdLine[1]
 			Case "exit"
-				$wndMSG_msg = 0
+				$iForward = 0 ; close the running program
+			Case "add", "remove"
+				$iForward = -1 ; actions of the command line are not forwarded
 		EndSwitch
-		If $wndMSG_msg <> -1 Then _SendMessage(WinGetHandle("FileAssociatorPortable"), $wndMSG, $wndMSG_msg, 0)
+	EndIf
+	If $iForward <> -1 Then
+		Local $hRunning = WinGetHandle("[TITLE:FileAssociatorPortable; CLASS:AutoIt v3 GUI]") ; (an Explorer window of this folder has the same title)
+		If $hRunning Then
+			DllCall("user32.dll", "bool", "AllowSetForegroundWindow", "dword", -1) ; ASFW_ANY: the running program may come to the front
+			_SendMessage($hRunning, $wndMSG, $iForward, 0)
+		EndIf
 	EndIf
 	Exit
 EndIf
@@ -231,14 +246,19 @@ Func _OperatingMode()
 	EndIf
 EndFunc
 
-Func _CreateMutex()
-	DllCall("kernel32.dll", "int", "CreateMutex", _
-							"ptr", 0, _
-							"int", 0, _
-							"str", @ScriptName _
-							)
-	Local $ret = DllCall("kernel32.dll", "int", "GetLastError")
-	Return $ret[0]
+Func _AlreadyRunning()
+	; named mutex (the handle stays open until the program ends).  ERROR_ALREADY_EXISTS (183) = running;
+	; ERROR_ACCESS_DENIED (5) = running with other rights (ie as administrator).
+	Local $aH = DllCall("kernel32.dll", "handle", "CreateMutexW", "ptr", 0, "bool", False, "wstr", "Local\" & @ScriptName & "_SingleInstance")
+	If Not @error Then
+		Local $aErr = DllCall("kernel32.dll", "dword", "GetLastError")
+		If Not @error Then
+			$hMutex = $aH[0]
+			If $aErr[0] = 183 Or $aErr[0] = 5 Then Return True
+		EndIf
+	EndIf
+	; second check: the main window of a running program
+	Return (WinExists("[TITLE:FileAssociatorPortable; CLASS:AutoIt v3 GUI]") <> 0)
 EndFunc
 
 Func _MY_CUSTOM_MSG($hWnd, $Msg, $wParam, $lParam)
@@ -248,6 +268,8 @@ Func _MY_CUSTOM_MSG($hWnd, $Msg, $wParam, $lParam)
 			Switch $wParam
 				Case 0
 					_Exit()
+				Case 1
+					AdlibRegister("_ShowFromSecondInstance", 10) ; the program was started again: show the main window (not inside the handler)
 			EndSwitch
 	EndSwitch
 EndFunc
@@ -563,6 +585,7 @@ Func _InitAllGUIs($guimode = "")
 #Region	===== main GUI & tray
 	; Main window: wider layout with clearer grouping and more comfortable spacing.
 	$nGUI = GUICreate("FileAssociatorPortable", 310, 545, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU, $WS_MINIMIZEBOX))
+	DllCall("user32.dll", "bool", "ChangeWindowMessageFilterEx", "hwnd", $nGUI, "uint", $wndMSG, "dword", 1, "ptr", 0) ; MSGFLT_ALLOW: a second start (normal rights) can message this window (also as administrator)
 	GUISetFont(9, 400, 0, "Segoe UI", $nGUI)
 
 	; Primary actions
@@ -929,11 +952,7 @@ Func _InitAllGUIs($guimode = "")
 	$rdGUI = GUICreate("Readme", 940, 600, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "_ReadmeClose") ; close button (X) = Close
 	$rdEdit = GUICtrlCreateEdit("", 10, 10, 920, 545, BitOR($ES_READONLY, $ES_AUTOVSCROLL, $ES_AUTOHSCROLL, $WS_VSCROLL, $WS_HSCROLL))
-	If _OSBuildAtLeast(6000) Then
-		GUICtrlSetFont(-1, 9, 400, 0, "Consolas")
-	Else
-		GUICtrlSetFont(-1, 9, 400, 0, "Courier New") ; Windows XP has no Consolas
-	EndIf
+	GUICtrlSetFont(-1, 9, 400, 0, "Consolas")
 	GUICtrlSetLimit(-1, 2000000)
 	$rdClose = GUICtrlCreateButton("Close", 855, 562, 75, 28)
 	GUICtrlSetOnEvent($rdClose, "_ReadmeClose")
@@ -1185,6 +1204,16 @@ EndFunc
 Func _HideMainGUI()
 	GUISetState(@SW_MINIMIZE, $nGUI)
 	GUISetState(@SW_HIDE, $nGUI)
+EndFunc
+
+Func _ShowFromSecondInstance()
+	AdlibUnRegister("_ShowFromSecondInstance")
+	_RestoreMainGUI() ; from the tray / minimized
+	WinActivate($nGUI)
+	Local $aPop = DllCall("user32.dll", "hwnd", "GetWindow", "hwnd", $nGUI, "uint", 6) ; GW_ENABLEDPOPUP: a dialog of the program is open
+	If Not @error Then
+		If $aPop[0] Then WinActivate($aPop[0])
+	EndIf
 EndFunc
 
 Func _RestoreMainGUI()
@@ -2286,18 +2315,25 @@ Func _FtypeChange()
 EndFunc
 
 Func _DefAssocToArray($ftype)
-	Local $aAssoc[1] = [0], $sections = _ReadINISections()
-	For $i = 1 To $sections[0]
+	; associations that have this extension (the "Default PFA Association" list of the File Types window)
+	Local $aAssoc[1] = [0], $sections = _ReadINISections(), $k, $m, $aM, $sG
+	For $k = 1 To $sections[0]
 		; if association is disabled, skip it
-		If Number(IniRead($associni, $sections[$i], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then ContinueLoop
-		If IniRead($associni, $sections[$i], "group", "") <> "" And _GroupExists(IniRead($associni, $sections[$i], "group", "")) Then ContinueLoop ; entries in a group are in a submenu: no default (double-click) action
-		; read modes from each associations and add matching ftype sections to array
-		Local $aSplit = StringSplit(IniRead($associni, $sections[$i], "mode", ""), "|")
-		_ArraySearch($aSplit, $ftype, 1)
-		If Not @error Then ; ftype found in section
-			$aAssoc[0] += 1
-			_ArrayAdd($aAssoc, $sections[$i])
+		If Number(IniRead($associni, $sections[$k], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then ContinueLoop
+		$sG = IniRead($associni, $sections[$k], "group", "")
+		If $sG <> "" Then
+			If _GroupExists($sG) Then ContinueLoop ; entries in a group are in a submenu: no default (double-click) action
 		EndIf
+		; the extensions of the association (a single extension is a list of one too)
+		$aM = _SplitAssociationModes(IniRead($associni, $sections[$k], "mode", ""))
+		For $m = 1 To $aM[0]
+			If StringLower(StringStripWS($aM[$m], 3)) = StringLower(StringStripWS($ftype, 3)) Then
+				$aAssoc[0] += 1
+				ReDim $aAssoc[$aAssoc[0] + 1]
+				$aAssoc[$aAssoc[0]] = $sections[$k]
+				ExitLoop
+			EndIf
+		Next
 	Next
 	Return $aAssoc
 EndFunc
@@ -2326,7 +2362,7 @@ Func _FtypeToEXE($ftype)
 	$sections = _ReadINISections()
 
 	For $i = 1 To $sections[0]
-		$modearray = StringSplit(IniRead($associni, $sections[$i], "mode", ""), "|")
+		$modearray = _SplitAssociationModes(IniRead($associni, $sections[$i], "mode", ""))
 		For $j = 1 To $modearray[0]
 			If $modearray[$j] = $ftype Then
 				Return _GetExePath(IniRead($associni, $sections[$i], "command", ""))
@@ -2796,7 +2832,7 @@ Func _WriteFtypeSettings()
 					Local $sections = _ReadINISections()
 					For $k = 1 To $sections[0]
 						; search mode array of each section for matching filetype, use that command
-						Local $aMode = StringSplit(IniRead($associni, $sections[$k], "mode", "none"), "|")
+						Local $aMode = _SplitAssociationModes(IniRead($associni, $sections[$k], "mode", "none"))
 						_ArraySearch($aMode, $aExts[$i])
 						If Not @error Then
 							$opencmd = _GetFullCommand(IniRead($associni, $sections[$k], "command", "none"))
@@ -3875,7 +3911,7 @@ EndFunc
 
 Func _OSBuildNumber()
 	; real Windows build number (RtlGetVersion is not changed by compatibility settings, @OSBuild can be).
-	; Windows XP = 2600, Windows 7 = 7601, Windows 10 1809 = 17763, 1903 = 18362, Windows 11 = 22000+
+	; Windows 7 = 7600 / 7601, Windows 10 1809 = 17763, 1903 = 18362, Windows 11 = 22000+
 	Static $iBuild = 0
 	If $iBuild = 0 Then
 		Local $tVI = DllStructCreate("dword Size;dword Major;dword Minor;dword Build;dword Platform;wchar CSD[128]")
@@ -3924,10 +3960,8 @@ Func _ThemeListView($hLV)
 		If $fDarkApi Then DllCall("uxtheme.dll", "bool", 133, "hwnd", $hHdr, "bool", $fDark)
 		If $fDark And $fDarkApi Then
 			_ThemeSetWT($hHdr, "DarkMode_ItemsView")
-		ElseIf _OSBuildAtLeast(6000) Then ; Windows Vista and newer
-			_ThemeSetWT($hHdr, "ItemsView")
 		Else
-			_ThemeSetWT($hHdr, "") ; Windows XP
+			_ThemeSetWT($hHdr, "ItemsView")
 		EndIf
 	EndIf
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1001, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETBKCOLOR
@@ -4345,7 +4379,7 @@ EndFunc
 #Region Update checker
 ;=======================================================================================
 ; Update checker.  Reads the latest version from .github/version.pfa (GitHub, main branch), the file only contains the
-; version number (ie 3.0.0.6).  If it is newer than the running version, a message offers the release page
+; version number (ie 3.0.0.7).  If it is newer than the running version, a message offers the release page
 ;   https://github.com/ShihabUddinX/FileAssociatorPortable/releases/tag/<version>
 ; Source 1 is the GitHub API (changes show up within seconds), source 2 is raw.githubusercontent.com (fallback, GitHub
 ; caches that for about 5 minutes).  The request is asynchronous (the program does not wait for the network), the main
@@ -4457,7 +4491,7 @@ Func _UpdateFinish($bOK, $sLatest)
 EndFunc
 
 Func _VersionIsNewer($sNew, $sCur)
-	; True if version $sNew (ie 3.0.0.6) is higher than $sCur, compared number by number
+	; True if version $sNew (ie 3.0.0.7) is higher than $sCur, compared number by number
 	Local $a = StringSplit($sNew, "."), $b = StringSplit($sCur, "."), $i, $x, $y
 	For $i = 1 To 4
 		$x = 0
@@ -4521,34 +4555,16 @@ Func _SplashHide($hGUI, $hTimer)
 EndFunc
 
 Func _B64ToBinary($sB64)
-	; CRYPT_STRING_BASE64 = 1.  Windows XP has no CryptStringToBinary: then the text is decoded here.
+	; CRYPT_STRING_BASE64 = 1
 	Local $aRet = DllCall("crypt32.dll", "bool", "CryptStringToBinaryA", "str", $sB64, "dword", 0, "dword", 1, "ptr", 0, "dword*", 0, "ptr", 0, "ptr", 0)
-	If @error Or Not $aRet[0] Then Return _B64Decode($sB64)
+	If @error Or Not $aRet[0] Then Return SetError(1, 0, Binary(""))
 	Local $iSize = $aRet[5]
 	Local $tBuf = DllStructCreate("byte[" & $iSize & "]")
 	$aRet = DllCall("crypt32.dll", "bool", "CryptStringToBinaryA", "str", $sB64, "dword", 0, "dword", 1, "struct*", $tBuf, "dword*", $iSize, "ptr", 0, "ptr", 0)
-	If @error Or Not $aRet[0] Then Return _B64Decode($sB64)
+	If @error Or Not $aRet[0] Then Return SetError(2, 0, Binary(""))
 	Return DllStructGetData($tBuf, 1)
 EndFunc
 
-Func _B64Decode($sB64)
-	Local Const $sMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-	Local $i, $iBits = 0, $iAcc = 0, $v, $sHex = "", $c
-	For $i = 1 To StringLen($sB64)
-		$c = StringMid($sB64, $i, 1)
-		If $c = "=" Then ExitLoop
-		$v = StringInStr($sMap, $c, 1) - 1 ; case sensitive
-		If $v < 0 Then ContinueLoop
-		$iAcc = BitOR(BitShift($iAcc, -6), $v)
-		$iBits += 6
-		If $iBits >= 8 Then
-			$iBits -= 8
-			$sHex &= Hex(BitAND(BitShift($iAcc, $iBits), 0xFF), 2)
-			$iAcc = BitAND($iAcc, BitShift(1, -$iBits) - 1)
-		EndIf
-	Next
-	Return Binary("0x" & $sHex)
-EndFunc
 
 Func _ProfileIconData($sName)
 	Local $s = ""
@@ -4842,7 +4858,7 @@ Func _ReadmeText()
 	$s &= "README.TXT" & @CRLF
 	$s &= "==========" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "FileAssociatorPortable  (version 3.0.0.6)   (formerly PortableFileAssociator)" & @CRLF
+	$s &= "FileAssociatorPortable  (version 3.0.0.7)   (formerly PortableFileAssociator)" & @CRLF
 	$s &= "Take your file associations with you.  Open local files with your portable applications." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Owner / Trademark:  ShihabUddinX" & @CRLF
@@ -4868,7 +4884,7 @@ Func _ReadmeText()
 	$s &= "Settings = The gear icon at the bottom right opens the Settings window: theme, start and exit options," & @CRLF
 	$s &= "           update check, splash screen (see ""Settings"" below)." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Version  = The version number (ie v3.0.0.6) is shown at the bottom left of the main window.  It is also the" & @CRLF
+	$s &= "Version  = The version number (ie v3.0.0.7) is shown at the bottom left of the main window.  It is also the" & @CRLF
 	$s &= "           file version of FileAssociatorPortable.exe." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Owner    = ShihabUddinX (owner and trademark).  Also written in the file properties of" & @CRLF
@@ -5300,6 +5316,11 @@ Func _ReadmeText()
 	$s &= "'commandline=add_gui' in 'Data\Settings\profile.ini' for this; that line is no longer read (it is taken over" & @CRLF
 	$s &= "into the Settings automatically).  A launcher that can pass arguments can still use the command line above." & @CRLF
 	$s &= "" & @CRLF
+	$s &= "Only one copy of the program runs at a time.  If FileAssociatorPortable.exe is started again while it is running" & @CRLF
+	$s &= "(also when it is hidden in the tray or minimized), no second copy is started: the running program shows its main" & @CRLF
+	$s &= "window and comes to the front (an open dialog is brought to the front).  This also works when the running" & @CRLF
+	$s &= "program was started as administrator." & @CRLF
+	$s &= "" & @CRLF
 	$s &= "If PFA is already running, there is one command line parameter available:" & @CRLF
 	$s &= "" & @CRLF
 	$s &= "exit = Close the running instance of PFA.  File associations are removed based on the setting" & @CRLF
@@ -5312,11 +5333,11 @@ Func _ReadmeText()
 	$s &= "" & @CRLF
 	$s &= "Windows versions:" & @CRLF
 	$s &= "=================" & @CRLF
-	$s &= "FileAssociatorPortable works on Windows XP to Windows 11.  To run on Windows XP the program must be compiled with" & @CRLF
-	$s &= "AutoIt 3.3.14.5 (32 bit).  What differs:" & @CRLF
+	$s &= "FileAssociatorPortable works on Windows 7 to Windows 11 (Windows 7 is the minimum; on older Windows the program" & @CRLF
+	$s &= "shows a message and closes).  What differs:" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "- Windows XP / Vista / 7 / 8:  the Dark theme colors the windows, text, inputs and lists, but the buttons," & @CRLF
-	$s &= "  combo boxes, scroll bars, the title bar and the menus keep the Windows look (light)." & @CRLF
+	$s &= "- Windows 7 / 8:  the Dark theme colors the windows, text, inputs and lists, but the buttons, combo boxes, scroll" & @CRLF
+	$s &= "  bars, the title bar and the menus keep the Windows look (light)." & @CRLF
 	$s &= "- Windows 10 1903 and newer, Windows 11:  the Dark theme also uses the dark Windows styles for buttons, combo boxes," & @CRLF
 	$s &= "  scroll bars, menus and the title bar." & @CRLF
 	$s &= "- Theme ""System"": follows the app theme of Windows (Windows 10 / 11).  When it is changed while the program is" & @CRLF
@@ -5325,7 +5346,6 @@ Func _ReadmeText()
 	$s &= "  Windows 10 1903 (build 18362); calling them on older Windows crashes the program.  To switch them off on every" & @CRLF
 	$s &= "  Windows add  darkmodeapi=false  to the [settings] section of Data\settings\settings.ini (the Dark theme then" & @CRLF
 	$s &= "  only uses colors)." & @CRLF
-	$s &= "- Windows XP has no Segoe UI / Consolas fonts: the default font and Courier New are used." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Known Issues / Notes:" & @CRLF
 	$s &= "=====================" & @CRLF
