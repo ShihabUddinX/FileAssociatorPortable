@@ -117,6 +117,8 @@ Global $aMutedLbl[5][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour,
 Global Const $aProfIconNames[5] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile", "Settings"]
 Global $refreshnow, $trayexit, $traysettings
 Global $hAssocHdr = 0, $hsHdr = 0 ; list view headers (painted by hand in the dark theme)
+Global $globalChk, $globalIcon, $globalIdx, $globalBrowse ; File Types: Global Icon of the selected association
+Global $fDarkApi = False, $fDwmDark = False ; Windows 10 dark mode APIs (set in _SettingsLoad)
 Global $oGrp = 0, $hGroupHdr = 0 ; group submenus written in this run / group list header
 Global $gmGUI, $hGroupLV, $gmAdd, $gmDel, $gmEdit, $gmClose, $geGUI, $geName, $geIcon, $geIconBrowse, $geIconIdx, $gePreview, $geSave, $geCancel, $sGroupEdit = "", $hGroupBack
 Global $eGroup, $eGroupBtn, $aGrpBtn
@@ -144,6 +146,7 @@ _OSVersion()
 
 GUIRegisterMsg($WM_COMMAND, "_MY_WM_COMMAND")
 GUIRegisterMsg($WM_NOTIFY, "_MY_WM_NOTIFY") ; double-click in the association list = Edit
+GUIRegisterMsg($PFA_WM_SETTINGCHANGE, "_MY_WM_SETTINGCHANGE") ; Windows theme changed (theme: System)
 GUIRegisterMsg($wndMSG, "_MY_CUSTOM_MSG")
 GUIRegisterMsg(0x16, "_MY_WM_ENDSESSION") ; WM_ENDSESSION
 
@@ -802,47 +805,56 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($geCancel, "_GroupCancel")
 #EndRegion ===== group GUI
 #Region	===== types GUI
-	$tGUI = GUICreate("Configure File Types", 465, 340, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	$tGUI = GUICreate("Configure File Types", 465, 372, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "_tGUICancel") ; close button (X) = Cancel (Done applies / asks, X does not)
 
 	GUICtrlCreateLabel("Association:", 10, 13)
 	$ftypeAssocFilter = GUICtrlCreateCombo("", 78, 8, 180, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
 	GUICtrlSetTip(-1, "Filter the file types by their association name. Choose All to show every extension.")
-	GUICtrlCreateLabel("File Type:", 10, 48)
-	$ftypelist = GUICtrlCreateCombo("", 62, 43, 78, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
-	GUICtrlCreateLabel("Default PFA Association:", 10, 93)
-	$defassoclist = GUICtrlCreateCombo("", 10, 113, 200, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	$globalChk = GUICtrlCreateCheckbox("Global Icon", 10, 40, 100, 20)
+	GUICtrlSetTip(-1, "One icon for ALL file types of the selected association." & @CRLF & "Only available when an association is selected (not for All associations)." & @CRLF & "While it is on, no separate icon can be chosen for these file types.")
+	$globalIcon = GUICtrlCreateInput("", 112, 40, 222, 22)
+	GUICtrlSetTip(-1, "Global icon file (exe, dll or ico) of the selected association.")
+	$globalIdx = GUICtrlCreateInput("0", 340, 40, 48, 22)
+	GUICtrlSetTip(-1, "Icon index in a multi-icon file (exe or dll).")
+	$globalBrowse = GUICtrlCreateButton("...", 394, 41, 24, 20)
+	GUICtrlCreateLabel("File Type:", 10, 78)
+	$ftypelist = GUICtrlCreateCombo("", 62, 73, 78, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlCreateLabel("Default PFA Association:", 10, 123)
+	$defassoclist = GUICtrlCreateCombo("", 10, 143, 200, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
 	GUICtrlSetTip(-1, "Default PFA association for the selected extension (dbl-click action).")
-	$hideext = GUICtrlCreateCheckbox("Hide extension", 160, 40)
+	$hideext = GUICtrlCreateCheckbox("Hide extension", 160, 70)
 	GUICtrlSetTip(-1, "Prevent this extension from displaying in Explorer.")
-	$copyhost = GUICtrlCreateCheckbox("Copy Host Associations", 160, 60)
+	$copyhost = GUICtrlCreateCheckbox("Copy Host Associations", 160, 90)
 	GUICtrlSetTip(-1, "Copy any associations present on the Host computer for this extension.")
-	$hostoverride = GUICtrlCreateCheckbox("Host Precedence", 180, 80)
+	$hostoverride = GUICtrlCreateCheckbox("Host Precedence", 180, 110)
 	GUICtrlSetTip(-1, "If host default association exists, it will take precedence over the PFA default.")
-	GUICtrlCreateLabel("", 312, 38, 52, 52, $SS_BLACKFRAME) ; icon frame
-	$icondisplay = GUICtrlCreateIcon("", "", 314, 40, 48, 48)
-	GUICtrlCreateLabel("Index:", 379, 47)
-	$iconindex = GUICtrlCreateInput("0", 379, 67, 55, 23)
+	GUICtrlCreateLabel("", 312, 68, 52, 52, $SS_BLACKFRAME) ; icon frame
+	$icondisplay = GUICtrlCreateIcon("", "", 314, 70, 48, 48)
+	GUICtrlCreateLabel("Index:", 379, 77)
+	$iconindex = GUICtrlCreateInput("0", 379, 97, 55, 23)
 	$indexupdown = GUICtrlCreateUpdown($iconindex, BitOR($UDS_ALIGNRIGHT, $UDS_NOTHOUSANDS))
 	GUICtrlSetTip(-1, "Icon index in a multi-icon file (exe or dll).")
 	GUICtrlSetLimit(-1, 0, -10000)
-	GUICtrlCreateLabel("Iconfile (exe, dll, or ico):", 10, 146)
-	$ftypeicon = GUICtrlCreateInput("", 10, 166, 400, 20)
+	GUICtrlCreateLabel("Iconfile (exe, dll, or ico):", 10, 176)
+	$ftypeicon = GUICtrlCreateInput("", 10, 196, 400, 20)
 	GUICtrlSetTip(-1, "Icon to display when a Host computer association is not the default action.")
-	$iconbrowse = GUICtrlCreateButton("...", 415, 170, 20, 16)
-	$showNewMenu = GUICtrlCreateCheckbox("Show in New menu in context menu", 10, 196, 245, 20)
+	$iconbrowse = GUICtrlCreateButton("...", 415, 200, 20, 16)
+	$showNewMenu = GUICtrlCreateCheckbox("Show in New menu in context menu", 10, 226, 245, 20)
 	GUICtrlSetTip(-1, "Add this file type to Explorer right-click > New submenu.")
-	GUICtrlCreateLabel("New menu name:", 10, 223)
-	$newMenuName = GUICtrlCreateInput("", 105, 219, 345, 22)
+	GUICtrlCreateLabel("New menu name:", 10, 253)
+	$newMenuName = GUICtrlCreateInput("", 105, 249, 345, 22)
 	GUICtrlSetTip(-1, "Display name shown under right-click > New. Default: PFA_<extension> File.")
-	$useTemplate = GUICtrlCreateCheckbox("Use template file", 10, 253, 150, 20)
+	$useTemplate = GUICtrlCreateCheckbox("Use template file", 10, 283, 150, 20)
 	GUICtrlSetTip(-1, "Use Data\newitems\{UPPERCASE_EXTENSION}.{extension}. No custom template selection.")
-	$templateFile = GUICtrlCreateInput("", 10, 278, 440, 22, $ES_READONLY)
+	$templateFile = GUICtrlCreateInput("", 10, 308, 440, 22, $ES_READONLY)
 	GUICtrlSetTip(-1, "PFA automatically looks for this exact filename inside Data\newitems.")
-	$savetypes = GUICtrlCreateButton("Save File Type", 117, 307, 105, 25)
-	$donetypes = GUICtrlCreateButton("Done", 243, 307, 75, 25)
+	$savetypes = GUICtrlCreateButton("Save File Type", 117, 337, 105, 25)
+	$donetypes = GUICtrlCreateButton("Done", 243, 337, 75, 25)
 	; control events
 	GUICtrlSetOnEvent($ftypeAssocFilter, "_FtypeAssocFilterChange")
+	GUICtrlSetOnEvent($globalChk, "_GlobalIconUpdate")
+	GUICtrlSetOnEvent($globalBrowse, "_GlobalBrowseIcon")
 	GUICtrlSetOnEvent($ftypelist, "_FtypeChange")
 	GUICtrlSetOnEvent($copyhost, "_CopyHostToggle")
 	GUICtrlSetOnEvent($iconbrowse, "_BrowseIcon")
@@ -917,7 +929,11 @@ Func _InitAllGUIs($guimode = "")
 	$rdGUI = GUICreate("Readme", 940, 600, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "_ReadmeClose") ; close button (X) = Close
 	$rdEdit = GUICtrlCreateEdit("", 10, 10, 920, 545, BitOR($ES_READONLY, $ES_AUTOVSCROLL, $ES_AUTOHSCROLL, $WS_VSCROLL, $WS_HSCROLL))
-	GUICtrlSetFont(-1, 9, 400, 0, "Consolas")
+	If _OSBuildAtLeast(6000) Then
+		GUICtrlSetFont(-1, 9, 400, 0, "Consolas")
+	Else
+		GUICtrlSetFont(-1, 9, 400, 0, "Courier New") ; Windows XP has no Consolas
+	EndIf
 	GUICtrlSetLimit(-1, 2000000)
 	$rdClose = GUICtrlCreateButton("Close", 855, 562, 75, 28)
 	GUICtrlSetOnEvent($rdClose, "_ReadmeClose")
@@ -1515,7 +1531,12 @@ Func _SaveAssocSection()
 	IniWrite($associni, $tSec, "disabled", $sDisabled) ; 1 = checked, 4 = unchecked
 	_AssocWriteFlag($tSec, "single", _IsChk($singleChk))
 	_AssocWriteFlag($tSec, "admin", _IsChk($runAdminChk)) ; run as administrator ; single selected item only
-	If $sEditName <> "" And $sEditName <> $tSec Then IniDelete($associni, $sEditName) ; renamed: remove the old entry
+	If $sEditName <> "" And $sEditName <> $tSec Then ; renamed: the old entry is removed, its Global Icon (File Types window) moves along
+		Local $sGI = IniRead($associni, $sEditName, "globalicon", ""), $sGO = IniRead($associni, $sEditName, "globaliconon", "")
+		If $sGI <> "" Then IniWrite($associni, $tSec, "globalicon", $sGI)
+		If $sGO <> "" Then IniWrite($associni, $tSec, "globaliconon", $sGO)
+		IniDelete($associni, $sEditName)
+	EndIf
 	_AssocEditorClose($tSec) ; back to the list, the saved association is selected
 EndFunc
 
@@ -1693,7 +1714,7 @@ Func _TypesEditGUI()
 	GUICtrlSetData($templateFile, "")
 	GUICtrlSetState($templateFile, $GUI_DISABLE)
 	_PopulateFtypeAssociationFilter()
-	_GetIcon()
+	_GlobalIconUpdate()
 	GUISetState(@SW_DISABLE, $nGUI)
 	WinSetTitle($tGUI, "", "Configure File Types - " & $curProfile)
 	GUISetState(@SW_SHOW, $tGUI)
@@ -1710,11 +1731,14 @@ Func _PopulateFtypeAssociationFilter()
 	Next
 	If $aNames[0] > 1 Then _ArraySort($aNames, 0, 1)
 	GUICtrlSetData($ftypeAssocFilter, "|(All associations)|" & _ArrayToString($aNames, "|", 1), "(All associations)")
+	_GlobalIconLoad("(All associations)")
 	_PopulateFtypeListForAssociation("(All associations)")
 EndFunc
 
 Func _FtypeAssocFilterChange()
+	_GlobalIconLoad(GUICtrlRead($ftypeAssocFilter)) ; Global Icon of the selected association
 	_PopulateFtypeListForAssociation(GUICtrlRead($ftypeAssocFilter))
+	_GlobalIconUpdate()
 EndFunc
 
 Func _SplitAssociationModes($sMode)
@@ -1902,6 +1926,24 @@ Func _RestoreIconPos($iconArray)
 	Next
 EndFunc
 
+Func _MY_WM_SETTINGCHANGE($hWnd, $Msg, $wParam, $lParam)
+	#forceref $hWnd, $Msg
+	; Windows 10 / 11 send "ImmersiveColorSet" when the app theme (light / dark) is changed
+	If $iThemeMode <> 0 Or $wParam <> 0 Or $lParam = 0 Then Return $GUI_RUNDEFMSG
+	Local $aBad = DllCall("kernel32.dll", "bool", "IsBadReadPtr", "ptr", $lParam, "uint", 36)
+	If @error Or $aBad[0] Then Return $GUI_RUNDEFMSG
+	Local $tStr = DllStructCreate("wchar[18]", $lParam)
+	If DllStructGetData($tStr, 1) = "ImmersiveColorSet" Then AdlibRegister("_ThemeFollowSystem", 300) ; (not inside the message handler)
+	Return $GUI_RUNDEFMSG
+EndFunc
+
+Func _ThemeFollowSystem()
+	AdlibUnRegister("_ThemeFollowSystem")
+	Local $fOld = $fDark
+	_ThemeLoad()
+	If $fDark <> $fOld Then _ThemeApply() ; no restart needed
+EndFunc
+
 Func _MY_WM_NOTIFY($hWnd, $Msg, $wParam, $lParam)
 	#forceref $Msg, $wParam
 	Local $tHdr = DllStructCreate("hwnd hWndFrom;uint_ptr IDFrom;int Code", $lParam)
@@ -1931,6 +1973,8 @@ Func _MY_WM_COMMAND($hWnd, $Msg, $wParam, $lParam)
 					_GetIcon()
 				ElseIf $ctrlid = $iconindex Then
 					_GetIcon()
+				ElseIf $ctrlid = $globalIcon Or $ctrlid = $globalIdx Then
+					_GetIcon() ; preview of the Global Icon while it is typed
 				EndIf
 			ElseIf $ctrlid = $iAssocIcon Or $ctrlid = $iAssocIconIndex Then
 				_UpdateAssocIconPreview()
@@ -1951,11 +1995,122 @@ Func _MY_WM_ENDSESSION($hWnd, $Msg, $wParam, $lParam)
 EndFunc
 
 Func _GetIcon()
-	Local $icon, $index
+	Local $icon, $index, $aG = _GlobalIconSource()
 
-	$icon = GUICtrlRead($ftypeicon)
-	$index = Number(GUICtrlRead($iconindex))
+	If IsArray($aG) Then ; a Global Icon applies to this file type
+		$icon = $aG[0]
+		$index = $aG[1]
+	Else
+		$icon = GUICtrlRead($ftypeicon)
+		$index = Number(GUICtrlRead($iconindex))
+	EndIf
 	GUICtrlSetImage($icondisplay, $icon, $index)
+EndFunc
+
+;=======================================================================================
+; Global Icon: one icon for all file types of the SELECTED association (File Types window).
+; Stored in the association section of the association INI:  globalicon=<path[,index]>  globaliconon=1
+; While it is on, no separate icon can be chosen for these file types.  It does not change their own icon setting,
+; it is used instead of it when the associations are added (_FtypeIconRaw).
+;=======================================================================================
+Func _FtypeGlobalOwner($sExt, $sExclude = "")
+	; name of the (enabled) association, other than $sExclude, that has this extension and its Global Icon switched on
+	Local $aSec = _ReadINISections(), $k, $aM, $m
+	For $k = 1 To $aSec[0]
+		If $aSec[$k] = $sExclude Then ContinueLoop
+		If Number(IniRead($associni, $aSec[$k], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then ContinueLoop
+		If Number(IniRead($associni, $aSec[$k], "globaliconon", 0)) <> 1 Then ContinueLoop
+		If IniRead($associni, $aSec[$k], "globalicon", "") = "" Then ContinueLoop
+		$aM = _SplitAssociationModes(IniRead($associni, $aSec[$k], "mode", ""))
+		For $m = 1 To $aM[0]
+			If StringLower(StringStripWS($aM[$m], 3)) = StringLower($sExt) Then Return $aSec[$k]
+		Next
+	Next
+	Return ""
+EndFunc
+
+Func _FtypeIconRaw($sExt)
+	; icon of a file type for the registry: the Global Icon of an association that has it switched on, else its own icon
+	Local $sOwner = _FtypeGlobalOwner($sExt)
+	If $sOwner <> "" Then Return IniRead($associni, $sOwner, "globalicon", "")
+	Return IniRead($typesini, $sExt, "icon", "")
+EndFunc
+
+Func _GlobalIconSource()
+	; [path, index] of the Global Icon that applies to the file type shown in the window, 0 = none
+	Local $sAssoc = GUICtrlRead($ftypeAssocFilter), $bSel = ($sAssoc <> "" And $sAssoc <> "(All associations)"), $aR[2], $sOwner, $aIcon, $sExclude = ""
+	If $bSel And _IsChk($globalChk) Then ; switched on in the window (not saved yet)
+		$aR[0] = GUICtrlRead($globalIcon)
+		$aR[1] = Number(GUICtrlRead($globalIdx))
+		Return $aR
+	EndIf
+	If $bSel Then $sExclude = $sAssoc ; this association's Global Icon is switched off in the window
+	$sOwner = _FtypeGlobalOwner(GUICtrlRead($ftypelist), $sExclude)
+	If $sOwner <> "" Then ; another association has a Global Icon for this extension
+		$aIcon = _ParseAssocIcon(IniRead($associni, $sOwner, "globalicon", ""))
+		$aR[0] = $aIcon[0]
+		$aR[1] = $aIcon[1]
+		Return $aR
+	EndIf
+	Return 0
+EndFunc
+
+Func _GlobalIconLoad($sAssoc)
+	; shows the saved Global Icon of the selected association
+	Local $aIcon
+	If $sAssoc = "" Or $sAssoc = "(All associations)" Then
+		GUICtrlSetState($globalChk, $GUI_UNCHECKED)
+		GUICtrlSetData($globalIcon, "")
+		GUICtrlSetData($globalIdx, "0")
+		Return
+	EndIf
+	$aIcon = _ParseAssocIcon(IniRead($associni, $sAssoc, "globalicon", ""))
+	GUICtrlSetData($globalIcon, $aIcon[0])
+	GUICtrlSetData($globalIdx, $aIcon[1])
+	_AssocSetChk($globalChk, Number(IniRead($associni, $sAssoc, "globaliconon", 0)) = 1)
+EndFunc
+
+Func _GlobalIconUpdate()
+	; enables / disables the Global Icon controls and locks the separate icon of the file type while a Global Icon applies
+	Local $sAssoc = GUICtrlRead($ftypeAssocFilter), $bSel = ($sAssoc <> "" And $sAssoc <> "(All associations)")
+	Local $bOn = ($bSel And _IsChk($globalChk)), $iSt
+	$iSt = $GUI_DISABLE
+	If $bSel Then $iSt = $GUI_ENABLE
+	GUICtrlSetState($globalChk, $iSt) ; only for a selected association
+	$iSt = $GUI_DISABLE
+	If $bOn Then $iSt = $GUI_ENABLE
+	GUICtrlSetState($globalIcon, $iSt)
+	GUICtrlSetState($globalIdx, $iSt)
+	GUICtrlSetState($globalBrowse, $iSt)
+	$iSt = $GUI_ENABLE
+	If IsArray(_GlobalIconSource()) Then $iSt = $GUI_DISABLE ; a Global Icon applies: no separate icon
+	GUICtrlSetState($ftypeicon, $iSt)
+	GUICtrlSetState($iconindex, $iSt)
+	GUICtrlSetState($indexupdown, $iSt)
+	GUICtrlSetState($iconbrowse, $iSt)
+	_GetIcon()
+EndFunc
+
+Func _GlobalBrowseIcon()
+	Local $file = GUICtrlRead($globalIcon), $index = _AITIndexToWindowsIndex(Number(GUICtrlRead($globalIdx))), $new, $fNew = False
+	If $file = "" Or Not FileExists($file) Then
+		$file = FileOpenDialog("Choose the Global Icon", @ScriptDir, "Icon and resource files (*.ico;*.exe;*.dll)|All files (*.*)", 1, "", $tGUI)
+		If @error Then Return
+		$index = 0
+		$fNew = True
+	EndIf
+	$new = DllCall("shell32.dll", "int", 62, "hwnd", $tGUI, "wstr", $file, "int", $PFA_MAX_PATH, "int*", $index) ; IconPickDlg
+	If @error Or $new[0] = 0 Then ; picker closed: keep a file that was just chosen
+		If $fNew Then
+			GUICtrlSetData($globalIcon, $file)
+			GUICtrlSetData($globalIdx, "0")
+			_GlobalIconUpdate()
+		EndIf
+		Return
+	EndIf
+	GUICtrlSetData($globalIcon, $new[2])
+	GUICtrlSetData($globalIdx, _WindowsIndexToAITIndex($new[4]))
+	_GlobalIconUpdate()
 EndFunc
 
 Func _BrowseIcon()
@@ -2019,6 +2174,26 @@ Func _SaveTypes()
 	If $ext = "" Then Return
 	; pending
 	If $state = 1 Then $iconchange = True ; only pending if associations currently active
+	; Global Icon of the selected association
+	Local $sAssoc = GUICtrlRead($ftypeAssocFilter), $sGIcon
+	If $sAssoc <> "" And $sAssoc <> "(All associations)" Then
+		$sGIcon = ""
+		If GUICtrlRead($globalIcon) <> "" Then
+			$sGIcon = _GetRelAssocIcon(GUICtrlRead($globalIcon), Number(GUICtrlRead($globalIdx)))
+			If @error Then $sGIcon = "" ; icon file does not exist
+		EndIf
+		If _IsChk($globalChk) Then
+			If $sGIcon = "" Then
+				MsgBox(48, "File Types - Global Icon", "Choose an existing icon file for the Global Icon first (or switch it off).", 0, $tGUI)
+				Return
+			EndIf
+			IniWrite($associni, $sAssoc, "globalicon", $sGIcon)
+			IniWrite($associni, $sAssoc, "globaliconon", "1")
+		Else
+			If $sGIcon <> "" Then IniWrite($associni, $sAssoc, "globalicon", $sGIcon) ; kept for the next time it is switched on
+			IniDelete($associni, $sAssoc, "globaliconon")
+		EndIf
+	EndIf
 	; index
 	$index = Number(GUICtrlRead($iconindex))
 	If $index = 0 Then
@@ -2107,7 +2282,7 @@ Func _FtypeChange()
 	EndIf
 	GUICtrlSetData($ftypeicon, _GetFullIcon($path))
 	GUICtrlSetData($iconindex, $index)
-	_GetIcon()
+	_GlobalIconUpdate() ; (includes _GetIcon)
 EndFunc
 
 Func _DefAssocToArray($ftype)
@@ -2460,7 +2635,7 @@ Func _WriteFtypeSettings()
 	If IsArray($aExts) Then
 		For $i = 1 To $aExts[0]
 			If $aExts[$i] = "exe" Or $aExts[$i] = "com" Or $aExts[$i] = "" Then ContinueLoop
-			Local $icon = _GetFullIcon(IniRead($typesini, $aExts[$i], "icon", "")) ; get icon
+			Local $icon = _GetFullIcon(_FtypeIconRaw($aExts[$i])) ; get icon (Global Icon of an association, else the own icon)
 			Local $fHide = (Number(IniRead($typesini, $aExts[$i], "hide", $GUI_UNCHECKED)) = $GUI_CHECKED)
 			Local $fCopyhost = (Number(IniRead($typesini, $aExts[$i], "copyhost", $GUI_UNCHECKED)) = $GUI_CHECKED)
 			Local $fHostoverride = (Number(IniRead($typesini, $aExts[$i], "hostoverride", $GUI_UNCHECKED)) = $GUI_CHECKED)
@@ -3698,9 +3873,22 @@ Func _ThemeEvent()
 	_ThemeApply()
 EndFunc
 
+Func _OSBuildNumber()
+	; real Windows build number (RtlGetVersion is not changed by compatibility settings, @OSBuild can be).
+	; Windows XP = 2600, Windows 7 = 7601, Windows 10 1809 = 17763, 1903 = 18362, Windows 11 = 22000+
+	Static $iBuild = 0
+	If $iBuild = 0 Then
+		Local $tVI = DllStructCreate("dword Size;dword Major;dword Minor;dword Build;dword Platform;wchar CSD[128]")
+		DllStructSetData($tVI, "Size", DllStructGetSize($tVI))
+		Local $aRet = DllCall("ntdll.dll", "long", "RtlGetVersion", "struct*", $tVI)
+		If Not @error And $aRet[0] = 0 Then $iBuild = DllStructGetData($tVI, "Build")
+		If $iBuild = 0 Then $iBuild = Number(@OSBuild)
+	EndIf
+	Return $iBuild
+EndFunc
+
 Func _OSBuildAtLeast($iBuild)
-	; Windows 10 / 11 build number check (Windows 7 = 7601, Windows 10 1903 = 18362)
-	Return (Number(@OSBuild) >= $iBuild)
+	Return (_OSBuildNumber() >= $iBuild)
 EndFunc
 
 Func _ThemeClass($h)
@@ -3726,18 +3914,20 @@ Func _ThemeListView($hLV)
 	If $hLV = $hsLV Then $hsHdr = $hHdr
 	If $hLV = $hAssocLV Then $hAssocHdr = $hHdr
 	If $hLV = $hGroupLV Then $hGroupHdr = $hHdr
-	DllCall("uxtheme.dll", "bool", 133, "hwnd", $hLV, "bool", $fDark) ; AllowDarkModeForWindow
-	If $fDark Then
+	If $fDarkApi Then DllCall("uxtheme.dll", "bool", 133, "hwnd", $hLV, "bool", $fDark) ; AllowDarkModeForWindow (Windows 10 1903+ only)
+	If $fDark And $fDarkApi Then
 		_ThemeSetWT($hLV, "DarkMode_Explorer")
 	Else
 		_ThemeSetWT($hLV, "")
 	EndIf
 	If $hHdr Then
-		DllCall("uxtheme.dll", "bool", 133, "hwnd", $hHdr, "bool", $fDark)
-		If $fDark Then
+		If $fDarkApi Then DllCall("uxtheme.dll", "bool", 133, "hwnd", $hHdr, "bool", $fDark)
+		If $fDark And $fDarkApi Then
 			_ThemeSetWT($hHdr, "DarkMode_ItemsView")
-		Else
+		ElseIf _OSBuildAtLeast(6000) Then ; Windows Vista and newer
 			_ThemeSetWT($hHdr, "ItemsView")
+		Else
+			_ThemeSetWT($hHdr, "") ; Windows XP
 		EndIf
 	EndIf
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1001, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETBKCOLOR
@@ -3802,10 +3992,12 @@ Func _ThemeApply($hOnly = 0)
 		$iCount = 1
 	EndIf
 	If $fDark Then
-		$sBtn = "DarkMode_Explorer"
-		$sEdit = "DarkMode_CFD"
-		$sList = "DarkMode_Explorer"
-		$sClassic = "classic"
+		If $fDarkApi Then ; dark visual styles only exist in Windows 10 1903 and newer
+			$sBtn = "DarkMode_Explorer"
+			$sEdit = "DarkMode_CFD"
+			$sList = "DarkMode_Explorer"
+		EndIf
+		$sClassic = "classic" ; check boxes / group boxes: no visual style, so their text colour can be set
 		$iVal = 1
 	EndIf
 
@@ -3813,7 +4005,7 @@ Func _ThemeApply($hOnly = 0)
 		; dark popup / tray menus (uxtheme ordinals: 135 = SetPreferredAppMode, 136 = FlushMenuThemes).
 		; These ordinals only exist as such in Windows 10 1903 (build 18362) and newer.  On older Windows (Windows 7 ...) the same
 		; ordinals are other functions, calling them crashes the program (APPCRASH), so they are skipped there.
-		If _OSBuildAtLeast(18362) Then
+		If $fDarkApi Then
 			If $fDark Then
 				DllCall("uxtheme.dll", "int", 135, "int", 2)
 			Else
@@ -3826,7 +4018,7 @@ Func _ThemeApply($hOnly = 0)
 	; window background + title bar
 	For $j = 0 To $iCount - 1
 		GUISetBkColor($iBgCol, $aTargets[$j])
-		If _OSBuildAtLeast(17763) Then ; dark title bar attributes exist since Windows 10 1809
+		If $fDwmDark Then ; dark title bar attributes exist since Windows 10 1809
 			DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 20, "int*", $iVal, "dword", 4)
 			DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 19, "int*", $iVal, "dword", 4)
 		EndIf
@@ -3933,6 +4125,11 @@ Func _SettingSet($sKey, $bOn)
 EndFunc
 
 Func _SettingsLoad()
+	; The dark mode APIs of Windows 10 / 11 are called by ordinal number (uxtheme.dll 133, 135, 136).  On older Windows these
+	; ordinals are other functions and calling them crashes the program (APPCRASH / BEX), so they are only used from
+	; Windows 10 1903 (build 18362).  settings.ini [settings] darkmodeapi=false switches them off on every Windows.
+	$fDarkApi = (_OSBuildAtLeast(18362) And _SettingGet("darkmodeapi", True))
+	$fDwmDark = (_OSBuildAtLeast(17763) And _SettingGet("darkmodeapi", True)) ; dark title bar
 	$fSetAddStart = _SettingGet("addassociationonstart", False)
 	$fSetRemoveExit = _SettingGet("removeonexit", True)
 	$fSetCheckUpd = _SettingGet("checkupdateonstartup", True)
@@ -4324,14 +4521,33 @@ Func _SplashHide($hGUI, $hTimer)
 EndFunc
 
 Func _B64ToBinary($sB64)
-	; CRYPT_STRING_BASE64 = 1
+	; CRYPT_STRING_BASE64 = 1.  Windows XP has no CryptStringToBinary: then the text is decoded here.
 	Local $aRet = DllCall("crypt32.dll", "bool", "CryptStringToBinaryA", "str", $sB64, "dword", 0, "dword", 1, "ptr", 0, "dword*", 0, "ptr", 0, "ptr", 0)
-	If @error Or Not $aRet[0] Then Return SetError(1, 0, Binary(""))
+	If @error Or Not $aRet[0] Then Return _B64Decode($sB64)
 	Local $iSize = $aRet[5]
 	Local $tBuf = DllStructCreate("byte[" & $iSize & "]")
 	$aRet = DllCall("crypt32.dll", "bool", "CryptStringToBinaryA", "str", $sB64, "dword", 0, "dword", 1, "struct*", $tBuf, "dword*", $iSize, "ptr", 0, "ptr", 0)
-	If @error Or Not $aRet[0] Then Return SetError(2, 0, Binary(""))
+	If @error Or Not $aRet[0] Then Return _B64Decode($sB64)
 	Return DllStructGetData($tBuf, 1)
+EndFunc
+
+Func _B64Decode($sB64)
+	Local Const $sMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	Local $i, $iBits = 0, $iAcc = 0, $v, $sHex = "", $c
+	For $i = 1 To StringLen($sB64)
+		$c = StringMid($sB64, $i, 1)
+		If $c = "=" Then ExitLoop
+		$v = StringInStr($sMap, $c, 1) - 1 ; case sensitive
+		If $v < 0 Then ContinueLoop
+		$iAcc = BitOR(BitShift($iAcc, -6), $v)
+		$iBits += 6
+		If $iBits >= 8 Then
+			$iBits -= 8
+			$sHex &= Hex(BitAND(BitShift($iAcc, $iBits), 0xFF), 2)
+			$iAcc = BitAND($iAcc, BitShift(1, -$iBits) - 1)
+		EndIf
+	Next
+	Return Binary("0x" & $sHex)
 EndFunc
 
 Func _ProfileIconData($sName)
@@ -4863,6 +5079,16 @@ Func _ReadmeText()
 	$s &= "===========" & @CRLF
 	$s &= "Association = Filter the list of file types by association name.  Choose All to show every extension." & @CRLF
 	$s &= "" & @CRLF
+	$s &= "Global Icon = One icon for ALL file types of the SELECTED association.  The box and the icon file, index and ""...""" & @CRLF
+	$s &= "        button next to it are only available when a single association is selected in the Association list" & @CRLF
+	$s &= "        (not for ""All associations"").  While Global Icon is on, no separate icon can be chosen for these file" & @CRLF
+	$s &= "        types (Iconfile, Index and the icon button of the file type are locked and the preview shows the global" & @CRLF
+	$s &= "        icon).  It does not change the icon settings of the single file types: switch it off and they are" & @CRLF
+	$s &= "        available again.  It is saved with ""Save File Type"" and used instead of the own icon when the" & @CRLF
+	$s &= "        associations are added.  If a file type is in two associations, the Global Icon of an association that" & @CRLF
+	$s &= "        has it switched on is used.  Stored in the association INI as globalicon=<path,index> and" & @CRLF
+	$s &= "        globaliconon=1." & @CRLF
+	$s &= "" & @CRLF
 	$s &= "File Type = Selected file type." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Default PFA Association = Default PFA association for the selected extension (dbl-click action)." & @CRLF
@@ -5083,6 +5309,23 @@ Func _ReadmeText()
 	$s &= "Background commands.  multi_open_admin and bg_open_admin are the same with ""Run as Admin"" (elevated start)." & @CRLF
 	$s &= "They are not meant to be started by hand." & @CRLF
 	$s &= "" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "Windows versions:" & @CRLF
+	$s &= "=================" & @CRLF
+	$s &= "FileAssociatorPortable works on Windows XP to Windows 11.  To run on Windows XP the program must be compiled with" & @CRLF
+	$s &= "AutoIt 3.3.14.5 (32 bit).  What differs:" & @CRLF
+	$s &= "" & @CRLF
+	$s &= "- Windows XP / Vista / 7 / 8:  the Dark theme colors the windows, text, inputs and lists, but the buttons," & @CRLF
+	$s &= "  combo boxes, scroll bars, the title bar and the menus keep the Windows look (light)." & @CRLF
+	$s &= "- Windows 10 1903 and newer, Windows 11:  the Dark theme also uses the dark Windows styles for buttons, combo boxes," & @CRLF
+	$s &= "  scroll bars, menus and the title bar." & @CRLF
+	$s &= "- Theme ""System"": follows the app theme of Windows (Windows 10 / 11).  When it is changed while the program is" & @CRLF
+	$s &= "  running, the program follows at once, no restart is needed." & @CRLF
+	$s &= "- The dark Windows styles are called through undocumented functions of Windows 10.  They are only used from" & @CRLF
+	$s &= "  Windows 10 1903 (build 18362); calling them on older Windows crashes the program.  To switch them off on every" & @CRLF
+	$s &= "  Windows add  darkmodeapi=false  to the [settings] section of Data\settings\settings.ini (the Dark theme then" & @CRLF
+	$s &= "  only uses colors)." & @CRLF
+	$s &= "- Windows XP has no Segoe UI / Consolas fonts: the default font and Courier New are used." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Known Issues / Notes:" & @CRLF
 	$s &= "=====================" & @CRLF

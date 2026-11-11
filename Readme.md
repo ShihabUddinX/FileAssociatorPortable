@@ -242,6 +242,7 @@ admin=1
 | Field | Description |
 |---|---|
 | **Association** | Filter the list of file types by association name. Choose *All* to show every extension. |
+| **Global Icon** | One icon for **all** file types of the **selected** association (icon file, index and `...` button next to the box). Only available when a single association is selected, not for *All associations*. While it is on, no separate icon can be chosen for these file types (*Iconfile*, *Index* and the icon button are locked and the preview shows the global icon); switch it off and they are available again. Saved with **Save File Type** and used instead of the own icon when the associations are added. If a file type is in two associations, the Global Icon of an association that has it switched on is used. Stored in the association INI as `globalicon=<path,index>` and `globaliconon=1`. |
 | **File Type** | The selected file type. |
 | **Default PFA Association** | Default PFA association for the selected extension (double-click action). |
 | **Hide extension** | Prevent the selected extension from being displayed in Explorer. |
@@ -402,6 +403,19 @@ If PFA is already running, one command line parameter is available:
 > **Internal parameters:** `multi_open` and `bg_open` are used by the context-menu entries created for `%%1` and Background commands. `multi_open_admin` and `bg_open_admin` are the same with **Run as Admin** (elevated start). They are not meant to be started by hand.
 
 ---
+
+## Windows versions
+
+FileAssociatorPortable works on **Windows XP to Windows 11**. To run on Windows XP the program must be compiled with **AutoIt 3.3.14.5 (32 bit)**. What differs:
+
+| Windows | Dark theme |
+|---|---|
+| XP, Vista, 7, 8 | Colors the windows, text, inputs and lists. Buttons, combo boxes, scroll bars, the title bar and the menus keep the Windows look (light). |
+| 10 (1903 and newer), 11 | Also uses the dark Windows styles for buttons, combo boxes, scroll bars, menus and the title bar. |
+
+- Theme **System** follows the app theme of Windows (Windows 10 / 11). When it is changed while the program is running, the program follows at once, no restart is needed.
+- The dark Windows styles are called through undocumented functions of Windows 10. They are only used from Windows 10 1903 (build 18362); calling them on older Windows crashes the program. To switch them off on every Windows add `darkmodeapi=false` to the `[settings]` section of `Data\settings\settings.ini` (the Dark theme then only uses colors).
+- Windows XP has no Segoe UI / Consolas fonts: the default font and Courier New are used.
 
 ## Known issues / notes
 
