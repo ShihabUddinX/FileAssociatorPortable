@@ -90,7 +90,7 @@ If $CmdLine[0] > 1 Then
 	EndIf
 EndIf
 
-$wndMSG = _WinAPI_RegisterWindowMessage("PFA_CustomWindowMessage")
+$wndMSG = _WinAPI_RegisterWindowMessage("FAP_CustomWindowMessage")
 
 ; single instance: when the program is already running no second one is started, the running one shows its main window
 If _AlreadyRunning() Then
@@ -132,6 +132,7 @@ Global $aMutedLbl[5][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour,
 Global Const $aProfIconNames[5] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile", "Settings"]
 Global $refreshnow, $trayexit, $traysettings
 Global $hAssocHdr = 0, $hsHdr = 0 ; list view headers (painted by hand in the dark theme)
+Global $globalDefChk ; File Types: Global Default FAP Association of the selected association
 Global $globalChk, $globalIcon, $globalIdx, $globalBrowse ; File Types: Global Icon of the selected association
 Global $fDarkApi = False, $fDwmDark = False ; Windows 10 dark mode APIs (set in _SettingsLoad)
 Global $oGrp = 0, $hGroupHdr = 0 ; group submenus written in this run / group list header
@@ -145,14 +146,14 @@ Global $sGUI, $hsLV, $sAdd, $sRemove, $sClear, $sSave, $sDone, $sDummy, $pWndPro
 
 Global $aDefaultAssociations[1] = [0], $aDropFiles[1] = [0]
 
-Global Const $PFA_MAX_PATH = 260
-Global Const $PFA_SPI_SETNONCLIENTMETRICS = 42
-Global Const $PFA_WM_SETTINGCHANGE = 0x1A
-Global Const $PFA_WM_DROPFILES = 0x233
-Global Const $PFA_HWND_BROADCAST = 0xFFFF
-Global Const $PFA_SHCNE_ASSOCCHANGED = 0x8000000
-Global Const $PFA_SHCNF_FLUSH = 0x1000
-Global Const $PFA_SHCNF_IDLIST = 0x0
+Global Const $FAP_MAX_PATH = 260
+Global Const $FAP_SPI_SETNONCLIENTMETRICS = 42
+Global Const $FAP_WM_SETTINGCHANGE = 0x1A
+Global Const $FAP_WM_DROPFILES = 0x233
+Global Const $FAP_HWND_BROADCAST = 0xFFFF
+Global Const $FAP_SHCNE_ASSOCCHANGED = 0x8000000
+Global Const $FAP_SHCNF_FLUSH = 0x1000
+Global Const $FAP_SHCNF_IDLIST = 0x0
 
 Global Const $drive = StringLeft(@ScriptDir, 2) ; get portable drive letter
 ; get some version info
@@ -161,7 +162,7 @@ _OSVersion()
 
 GUIRegisterMsg($WM_COMMAND, "_MY_WM_COMMAND")
 GUIRegisterMsg($WM_NOTIFY, "_MY_WM_NOTIFY") ; double-click in the association list = Edit
-GUIRegisterMsg($PFA_WM_SETTINGCHANGE, "_MY_WM_SETTINGCHANGE") ; Windows theme changed (theme: System)
+GUIRegisterMsg($FAP_WM_SETTINGCHANGE, "_MY_WM_SETTINGCHANGE") ; Windows theme changed (theme: System)
 GUIRegisterMsg($wndMSG, "_MY_CUSTOM_MSG")
 GUIRegisterMsg(0x16, "_MY_WM_ENDSESSION") ; WM_ENDSESSION
 
@@ -828,7 +829,7 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlSetOnEvent($geCancel, "_GroupCancel")
 #EndRegion ===== group GUI
 #Region	===== types GUI
-	$tGUI = GUICreate("Configure File Types", 465, 372, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
+	$tGUI = GUICreate("Configure File Types", 465, 400, -1, -1, BitOR($WS_CAPTION, $WS_SYSMENU), $WS_EX_TOOLWINDOW, $nGUI)
 	GUISetOnEvent($GUI_EVENT_CLOSE, "_tGUICancel") ; close button (X) = Cancel (Done applies / asks, X does not)
 
 	GUICtrlCreateLabel("Association:", 10, 13)
@@ -841,42 +842,45 @@ Func _InitAllGUIs($guimode = "")
 	$globalIdx = GUICtrlCreateInput("0", 340, 40, 48, 22)
 	GUICtrlSetTip(-1, "Icon index in a multi-icon file (exe or dll).")
 	$globalBrowse = GUICtrlCreateButton("...", 394, 41, 24, 20)
-	GUICtrlCreateLabel("File Type:", 10, 78)
-	$ftypelist = GUICtrlCreateCombo("", 62, 73, 78, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
-	GUICtrlCreateLabel("Default PFA Association:", 10, 123)
-	$defassoclist = GUICtrlCreateCombo("", 10, 143, 200, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
-	GUICtrlSetTip(-1, "Default PFA association for the selected extension (dbl-click action).")
-	$hideext = GUICtrlCreateCheckbox("Hide extension", 160, 70)
+	$globalDefChk = GUICtrlCreateCheckbox("Global Default FAP Association", 10, 66, 300, 20)
+	GUICtrlSetTip(-1, "Use the SELECTED association as the Default FAP Association (double-click action) of ALL its file types." & @CRLF & "Only available when an association is selected (not for All associations), and not for an association in a group." & @CRLF & "While it is on, no separate Default FAP Association can be chosen for these file types.")
+	GUICtrlCreateLabel("File Type:", 10, 106)
+	$ftypelist = GUICtrlCreateCombo("", 62, 101, 78, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlCreateLabel("Default FAP Association:", 10, 151)
+	$defassoclist = GUICtrlCreateCombo("", 10, 171, 200, 25, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
+	GUICtrlSetTip(-1, "Default FAP association for the selected extension (dbl-click action).")
+	$hideext = GUICtrlCreateCheckbox("Hide extension", 160, 98)
 	GUICtrlSetTip(-1, "Prevent this extension from displaying in Explorer.")
-	$copyhost = GUICtrlCreateCheckbox("Copy Host Associations", 160, 90)
+	$copyhost = GUICtrlCreateCheckbox("Copy Host Associations", 160, 118)
 	GUICtrlSetTip(-1, "Copy any associations present on the Host computer for this extension.")
-	$hostoverride = GUICtrlCreateCheckbox("Host Precedence", 180, 110)
-	GUICtrlSetTip(-1, "If host default association exists, it will take precedence over the PFA default.")
-	GUICtrlCreateLabel("", 312, 68, 52, 52, $SS_BLACKFRAME) ; icon frame
-	$icondisplay = GUICtrlCreateIcon("", "", 314, 70, 48, 48)
-	GUICtrlCreateLabel("Index:", 379, 77)
-	$iconindex = GUICtrlCreateInput("0", 379, 97, 55, 23)
+	$hostoverride = GUICtrlCreateCheckbox("Host Precedence", 180, 138)
+	GUICtrlSetTip(-1, "If host default association exists, it will take precedence over the FAP default.")
+	GUICtrlCreateLabel("", 312, 96, 52, 52, $SS_BLACKFRAME) ; icon frame
+	$icondisplay = GUICtrlCreateIcon("", "", 314, 98, 48, 48)
+	GUICtrlCreateLabel("Index:", 379, 105)
+	$iconindex = GUICtrlCreateInput("0", 379, 125, 55, 23)
 	$indexupdown = GUICtrlCreateUpdown($iconindex, BitOR($UDS_ALIGNRIGHT, $UDS_NOTHOUSANDS))
 	GUICtrlSetTip(-1, "Icon index in a multi-icon file (exe or dll).")
 	GUICtrlSetLimit(-1, 0, -10000)
-	GUICtrlCreateLabel("Iconfile (exe, dll, or ico):", 10, 176)
-	$ftypeicon = GUICtrlCreateInput("", 10, 196, 400, 20)
+	GUICtrlCreateLabel("Iconfile (exe, dll, or ico):", 10, 204)
+	$ftypeicon = GUICtrlCreateInput("", 10, 224, 400, 20)
 	GUICtrlSetTip(-1, "Icon to display when a Host computer association is not the default action.")
-	$iconbrowse = GUICtrlCreateButton("...", 415, 200, 20, 16)
-	$showNewMenu = GUICtrlCreateCheckbox("Show in New menu in context menu", 10, 226, 245, 20)
+	$iconbrowse = GUICtrlCreateButton("...", 415, 228, 20, 16)
+	$showNewMenu = GUICtrlCreateCheckbox("Show in New menu in context menu", 10, 254, 245, 20)
 	GUICtrlSetTip(-1, "Add this file type to Explorer right-click > New submenu.")
-	GUICtrlCreateLabel("New menu name:", 10, 253)
-	$newMenuName = GUICtrlCreateInput("", 105, 249, 345, 22)
-	GUICtrlSetTip(-1, "Display name shown under right-click > New. Default: PFA_<extension> File.")
-	$useTemplate = GUICtrlCreateCheckbox("Use template file", 10, 283, 150, 20)
+	GUICtrlCreateLabel("New menu name:", 10, 281)
+	$newMenuName = GUICtrlCreateInput("", 105, 277, 345, 22)
+	GUICtrlSetTip(-1, "Display name shown under right-click > New. Default: FAP_<extension> File.")
+	$useTemplate = GUICtrlCreateCheckbox("Use template file", 10, 311, 150, 20)
 	GUICtrlSetTip(-1, "Use Data\newitems\{UPPERCASE_EXTENSION}.{extension}. No custom template selection.")
-	$templateFile = GUICtrlCreateInput("", 10, 308, 440, 22, $ES_READONLY)
-	GUICtrlSetTip(-1, "PFA automatically looks for this exact filename inside Data\newitems.")
-	$savetypes = GUICtrlCreateButton("Save File Type", 117, 337, 105, 25)
-	$donetypes = GUICtrlCreateButton("Done", 243, 337, 75, 25)
+	$templateFile = GUICtrlCreateInput("", 10, 336, 440, 22, $ES_READONLY)
+	GUICtrlSetTip(-1, "FAP automatically looks for this exact filename inside Data\newitems.")
+	$savetypes = GUICtrlCreateButton("Save File Type", 117, 365, 105, 25)
+	$donetypes = GUICtrlCreateButton("Done", 243, 365, 75, 25)
 	; control events
 	GUICtrlSetOnEvent($ftypeAssocFilter, "_FtypeAssocFilterChange")
 	GUICtrlSetOnEvent($globalChk, "_GlobalIconUpdate")
+	GUICtrlSetOnEvent($globalDefChk, "_GlobalDefaultUpdate")
 	GUICtrlSetOnEvent($globalBrowse, "_GlobalBrowseIcon")
 	GUICtrlSetOnEvent($ftypelist, "_FtypeChange")
 	GUICtrlSetOnEvent($copyhost, "_CopyHostToggle")
@@ -925,17 +929,17 @@ Func _InitAllGUIs($guimode = "")
 	$stTheme = GUICtrlCreateCombo("", 84, 18, 140, 24, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
 	GUICtrlSetTip(-1, "System follows the Windows app theme.")
 	$stAddStart = GUICtrlCreateCheckbox("Add associations on start", 20, 62, 320, 22)
-	GUICtrlSetTip(-1, "Add the associations of the active profile automatically when PFA starts.")
+	GUICtrlSetTip(-1, "Add the associations of the active profile automatically when FAP starts.")
 	$stRemoveExit = GUICtrlCreateCheckbox("Remove associations on exit", 20, 90, 320, 22)
-	GUICtrlSetTip(-1, "Remove the associations again when PFA is closed.")
+	GUICtrlSetTip(-1, "Remove the associations again when FAP is closed.")
 	$stCheckUpd = GUICtrlCreateCheckbox("Check for updates on startup", 20, 118, 320, 22)
-	GUICtrlSetTip(-1, "Look for a newer version in the background each time PFA starts.")
+	GUICtrlSetTip(-1, "Look for a newer version in the background each time FAP starts.")
 	$stStartMin = GUICtrlCreateCheckbox("Start minimized (to the tray)", 20, 146, 320, 22)
-	GUICtrlSetTip(-1, "Off: the main window is shown when PFA starts.")
+	GUICtrlSetTip(-1, "Off: the main window is shown when FAP starts.")
 	$stNoSplash = GUICtrlCreateCheckbox("Disable splash screen", 20, 174, 320, 22)
 	GUICtrlSetTip(-1, "Saved as DisableSplash=true in FileAssociatorPortable.ini (next to the exe).")
 	$stCloseTray = GUICtrlCreateCheckbox("Close button (X) minimizes to the tray", 20, 202, 320, 22)
-	GUICtrlSetTip(-1, "Off: the close button exits PFA.")
+	GUICtrlSetTip(-1, "Off: the close button exits FAP.")
 	$aMutedLbl[4][0] = GUICtrlCreateLabel("Done saves the settings in Data\settings\settings.ini (the splash setting in FileAssociatorPortable.ini, next to the exe). Cancel and the close button (X) discard the changes.", 20, 244, 320, 48)
 	$aMutedLbl[4][1] = 0x666666
 	GUICtrlSetFont(-1, 8, 400, 2)
@@ -1564,6 +1568,7 @@ Func _SaveAssocSection()
 		Local $sGI = IniRead($associni, $sEditName, "globalicon", ""), $sGO = IniRead($associni, $sEditName, "globaliconon", "")
 		If $sGI <> "" Then IniWrite($associni, $tSec, "globalicon", $sGI)
 		If $sGO <> "" Then IniWrite($associni, $tSec, "globaliconon", $sGO)
+		If IniRead($associni, $sEditName, "globaldefault", "") <> "" Then IniWrite($associni, $tSec, "globaldefault", IniRead($associni, $sEditName, "globaldefault", ""))
 		IniDelete($associni, $sEditName)
 	EndIf
 	_AssocEditorClose($tSec) ; back to the list, the saved association is selected
@@ -1744,6 +1749,7 @@ Func _TypesEditGUI()
 	GUICtrlSetState($templateFile, $GUI_DISABLE)
 	_PopulateFtypeAssociationFilter()
 	_GlobalIconUpdate()
+	_GlobalDefaultUpdate()
 	GUISetState(@SW_DISABLE, $nGUI)
 	WinSetTitle($tGUI, "", "Configure File Types - " & $curProfile)
 	GUISetState(@SW_SHOW, $tGUI)
@@ -1768,6 +1774,7 @@ Func _FtypeAssocFilterChange()
 	_GlobalIconLoad(GUICtrlRead($ftypeAssocFilter)) ; Global Icon of the selected association
 	_PopulateFtypeListForAssociation(GUICtrlRead($ftypeAssocFilter))
 	_GlobalIconUpdate()
+	_GlobalDefaultUpdate()
 EndFunc
 
 Func _SplitAssociationModes($sMode)
@@ -1859,8 +1866,8 @@ EndFunc
 
 Func _SHChangeNotify()
 	DllCall("shell32.dll", "none", "SHChangeNotify", _
-						"long", $PFA_SHCNE_ASSOCCHANGED, _
-						"uint", BitOR($PFA_SHCNF_IDLIST, $PFA_SHCNF_FLUSH), _
+						"long", $FAP_SHCNE_ASSOCCHANGED, _
+						"uint", BitOR($FAP_SHCNF_IDLIST, $FAP_SHCNF_FLUSH), _
 						"ptr", 0, _
 						"ptr", 0 _
 						)
@@ -1897,9 +1904,9 @@ Func _SystemBroadcast()
 	Local $ret
 
 	$ret = DllCall("user32.dll", "int", "SendMessage", _
-									"hwnd", $PFA_HWND_BROADCAST, _
-									"uint", $PFA_WM_SETTINGCHANGE, _
-									"wparam", $PFA_SPI_SETNONCLIENTMETRICS, _
+									"hwnd", $FAP_HWND_BROADCAST, _
+									"uint", $FAP_WM_SETTINGCHANGE, _
+									"wparam", $FAP_SPI_SETNONCLIENTMETRICS, _
 									"str", "WindowMetrics" _
 								)
 	If Not @Compiled Then ConsoleWrite("Broadcast return: " & $ret[0] & @CRLF)
@@ -2084,11 +2091,79 @@ Func _GlobalIconSource()
 	Return 0
 EndFunc
 
+Func _FtypeFillDefault($ftype)
+	; "Default FAP Association" list of a file type: (no default) and the associations that have this extension
+	Local $defassoc = IniRead($typesini, $ftype, "default", "(no default)")
+	Local $aDefAssoc = _DefAssocToArray($ftype)
+	GUICtrlSetData($defassoclist, "|(no default)|" & _ArrayToString($aDefAssoc, "|", 1), $defassoc)
+EndFunc
+
+;=======================================================================================
+; Global Default FAP Association: the SELECTED association is the Default FAP Association (double-click action) of ALL
+; its file types.  Stored in the association INI:  globaldefault=1.  While it is on, the Default FAP Association of the
+; single file types is locked; it does not change their own setting, it is used instead of it when the associations
+; are added (_FtypeDefaultAssoc).  An association in a group has no default action, so it cannot be used.
+;=======================================================================================
+Func _AssocInGroup($sAssoc)
+	Local $g = IniRead($associni, $sAssoc, "group", "")
+	If $g = "" Then Return False
+	Return _GroupExists($g)
+EndFunc
+
+Func _FtypeGlobalDefaultOwner($sExt, $sExclude = "")
+	; name of the (enabled, not grouped) association, other than $sExclude, that has this extension and its Global Default on
+	Local $aSec = _ReadINISections(), $k, $aM, $m
+	For $k = 1 To $aSec[0]
+		If $aSec[$k] = $sExclude Then ContinueLoop
+		If Number(IniRead($associni, $aSec[$k], "disabled", $GUI_UNCHECKED)) = $GUI_CHECKED Then ContinueLoop
+		If Number(IniRead($associni, $aSec[$k], "globaldefault", 0)) <> 1 Then ContinueLoop
+		If _AssocInGroup($aSec[$k]) Then ContinueLoop
+		$aM = _SplitAssociationModes(IniRead($associni, $aSec[$k], "mode", ""))
+		For $m = 1 To $aM[0]
+			If StringLower(StringStripWS($aM[$m], 3)) = StringLower($sExt) Then Return $aSec[$k]
+		Next
+	Next
+	Return ""
+EndFunc
+
+Func _FtypeDefaultAssoc($sExt)
+	; Default FAP Association of a file type for the registry: the Global Default of an association, else its own setting
+	Local $sOwner = _FtypeGlobalDefaultOwner($sExt)
+	If $sOwner <> "" Then Return $sOwner
+	Return IniRead($typesini, $sExt, "default", "(no default)")
+EndFunc
+
+Func _GlobalDefaultUpdate()
+	Local $sAssoc = GUICtrlRead($ftypeAssocFilter), $bSel = ($sAssoc <> "" And $sAssoc <> "(All associations)")
+	Local $sExt = GUICtrlRead($ftypelist), $sForced = "", $sExclude = "", $bOk = ($bSel And Not _AssocInGroup($sAssoc))
+	If $bOk Then
+		GUICtrlSetState($globalDefChk, $GUI_ENABLE) ; only for a selected association
+	Else
+		_AssocSetChk($globalDefChk, False)
+		GUICtrlSetState($globalDefChk, $GUI_DISABLE)
+	EndIf
+	If $bOk And _IsChk($globalDefChk) Then
+		$sForced = $sAssoc
+	Else
+		If $bSel Then $sExclude = $sAssoc ; its Global Default is switched off in the window
+		If $sExt <> "" Then $sForced = _FtypeGlobalDefaultOwner($sExt, $sExclude) ; another association has it on
+	EndIf
+	If $sForced <> "" Then ; a Global Default applies: no separate Default FAP Association for the file type
+		GUICtrlSetData($defassoclist, "")
+		GUICtrlSetData($defassoclist, $sForced, $sForced)
+		GUICtrlSetState($defassoclist, $GUI_DISABLE)
+	Else
+		If $sExt <> "" Then _FtypeFillDefault($sExt)
+		GUICtrlSetState($defassoclist, $GUI_ENABLE)
+	EndIf
+EndFunc
+
 Func _GlobalIconLoad($sAssoc)
 	; shows the saved Global Icon of the selected association
 	Local $aIcon
 	If $sAssoc = "" Or $sAssoc = "(All associations)" Then
 		GUICtrlSetState($globalChk, $GUI_UNCHECKED)
+		GUICtrlSetState($globalDefChk, $GUI_UNCHECKED)
 		GUICtrlSetData($globalIcon, "")
 		GUICtrlSetData($globalIdx, "0")
 		Return
@@ -2097,6 +2172,7 @@ Func _GlobalIconLoad($sAssoc)
 	GUICtrlSetData($globalIcon, $aIcon[0])
 	GUICtrlSetData($globalIdx, $aIcon[1])
 	_AssocSetChk($globalChk, Number(IniRead($associni, $sAssoc, "globaliconon", 0)) = 1)
+	_AssocSetChk($globalDefChk, Number(IniRead($associni, $sAssoc, "globaldefault", 0)) = 1)
 EndFunc
 
 Func _GlobalIconUpdate()
@@ -2128,7 +2204,7 @@ Func _GlobalBrowseIcon()
 		$index = 0
 		$fNew = True
 	EndIf
-	$new = DllCall("shell32.dll", "int", 62, "hwnd", $tGUI, "wstr", $file, "int", $PFA_MAX_PATH, "int*", $index) ; IconPickDlg
+	$new = DllCall("shell32.dll", "int", 62, "hwnd", $tGUI, "wstr", $file, "int", $FAP_MAX_PATH, "int*", $index) ; IconPickDlg
 	If @error Or $new[0] = 0 Then ; picker closed: keep a file that was just chosen
 		If $fNew Then
 			GUICtrlSetData($globalIcon, $file)
@@ -2153,7 +2229,7 @@ Func _BrowseIcon()
 	$newicon = DllCall("shell32.dll", "int", 62, _ ; 62 = ordinal for IconPickDlg()
 										"hwnd", $tGUI, _
 										"wstr", $file, _
-										"int", $PFA_MAX_PATH, _
+										"int", $FAP_MAX_PATH, _
 										"int*", $index _
 										)
 	If $newicon[0] = 0 Then
@@ -2223,6 +2299,14 @@ Func _SaveTypes()
 			IniDelete($associni, $sAssoc, "globaliconon")
 		EndIf
 	EndIf
+	; Global Default FAP Association of the selected association
+	If $sAssoc <> "" And $sAssoc <> "(All associations)" Then
+		If _IsChk($globalDefChk) Then
+			IniWrite($associni, $sAssoc, "globaldefault", "1")
+		Else
+			IniDelete($associni, $sAssoc, "globaldefault")
+		EndIf
+	EndIf
 	; index
 	$index = Number(GUICtrlRead($iconindex))
 	If $index = 0 Then
@@ -2252,13 +2336,13 @@ Func _SaveTypes()
 	IniWrite($typesini, $ext, "hide", $hide) ; 1 = checked, 4 = unchecked
 	IniWrite($typesini, $ext, "copyhost", $host)
 	IniWrite($typesini, $ext, "hostoverride", $hostover)
-	IniWrite($typesini, $ext, "default", GUICtrlRead($defassoclist))
+	If Not BitAND(GUICtrlGetState($defassoclist), $GUI_DISABLE) Then IniWrite($typesini, $ext, "default", GUICtrlRead($defassoclist)) ; (locked while a Global Default applies)
 	IniWrite($typesini, $ext, "shownew", BitAND(GUICtrlRead($showNewMenu), $GUI_CHECKED) ? $GUI_CHECKED : $GUI_UNCHECKED)
 	IniWrite($typesini, $ext, "newname", StringStripWS(GUICtrlRead($newMenuName), 3))
 	Local $fShowNew = (BitAND(GUICtrlRead($showNewMenu), $GUI_CHECKED) = $GUI_CHECKED)
 	Local $fUseTemplate = ($fShowNew And BitAND(GUICtrlRead($useTemplate), $GUI_CHECKED) = $GUI_CHECKED)
 	IniWrite($typesini, $ext, "usetemplate", $fUseTemplate ? $GUI_CHECKED : $GUI_UNCHECKED)
-	; Legacy custom template paths are intentionally cleared: PFA now uses a fixed filename in Data\newitems.
+	; Legacy custom template paths are intentionally cleared: FAP now uses a fixed filename in Data\newitems.
 	IniWrite($typesini, $ext, "template", "")
 	If $fUseTemplate Then
 		Local $sExpected = _GetNewItemsTemplatePath($ext)
@@ -2277,14 +2361,12 @@ Func _FtypeChange()
 	$ftype = GUICtrlRead($ftypelist)
 	Local $fShowNew = (Number(IniRead($typesini, $ftype, "shownew", $GUI_UNCHECKED)) = $GUI_CHECKED)
 	GUICtrlSetState($showNewMenu, $fShowNew ? $GUI_CHECKED : $GUI_UNCHECKED)
-	GUICtrlSetData($newMenuName, IniRead($typesini, $ftype, "newname", "PFA_" & $ftype & " File"))
+	GUICtrlSetData($newMenuName, IniRead($typesini, $ftype, "newname", "FAP_" & $ftype & " File"))
 	Local $fUseTemplate = ($fShowNew And Number(IniRead($typesini, $ftype, "usetemplate", $GUI_UNCHECKED)) = $GUI_CHECKED)
 	GUICtrlSetState($useTemplate, $fUseTemplate ? $GUI_CHECKED : $GUI_UNCHECKED)
 	_UpdateTemplateControls()
 	; default association
-	Local $defassoc = IniRead($typesini, $ftype, "default", "(no default)")
-	Local $aDefAssoc = _DefAssocToArray($ftype)
-	GUICtrlSetData($defassoclist, "|(no default)|" & _ArrayToString($aDefAssoc, "|", 1), $defassoc)
+	_FtypeFillDefault($ftype)
 	; icon
 	$icon = IniRead($typesini, $ftype, "icon", "")
 	If $icon = "" Then ; no icon set, use associated program
@@ -2312,10 +2394,11 @@ Func _FtypeChange()
 	GUICtrlSetData($ftypeicon, _GetFullIcon($path))
 	GUICtrlSetData($iconindex, $index)
 	_GlobalIconUpdate() ; (includes _GetIcon)
+	_GlobalDefaultUpdate()
 EndFunc
 
 Func _DefAssocToArray($ftype)
-	; associations that have this extension (the "Default PFA Association" list of the File Types window)
+	; associations that have this extension (the "Default FAP Association" list of the File Types window)
 	Local $aAssoc[1] = [0], $sections = _ReadINISections(), $k, $m, $aM, $sG
 	For $k = 1 To $sections[0]
 		; if association is disabled, skip it
@@ -2435,7 +2518,7 @@ Func _MY_WINDOW_PROC($hWnd, $Msg, $wParam, $lParam)
 	Switch $hWnd
 		Case $hsLV
 			Switch $Msg
-				Case $PFA_WM_DROPFILES
+				Case $FAP_WM_DROPFILES
 					WinActivate($sGUI)
 					Dim $aDropFiles[1] = [0]
 					; string buffer for file path
@@ -2611,17 +2694,17 @@ EndFunc
 Func _ConfigureShellNew($sExtension, $fEnable, $sTemplate = "")
 	Local $sExtKey = "HKCU\Software\Classes\." & $sExtension
 	Local $sShellNew = $sExtKey & "\ShellNew"
-	Local $sBackup = $sExtKey & "\ShellNew_PFA_BACKUP"
-	Local $sMarker = RegRead($sExtKey, "_PFA_ShellNewBackup")
+	Local $sBackup = $sExtKey & "\ShellNew_FAP_BACKUP"
+	Local $sMarker = RegRead($sExtKey, "_FAP_ShellNewBackup")
 
 	If $fEnable Then
-		; Back up the host ShellNew key only once, so disabling PFA can restore it.
+		; Back up the host ShellNew key only once, so disabling FAP can restore it.
 		If $sMarker = "" Then
 			If _RegKeyExists($sShellNew) Then
 				_RegCopyKey($sShellNew, $sBackup)
-				RegWrite($sExtKey, "_PFA_ShellNewBackup", "REG_SZ", "1")
+				RegWrite($sExtKey, "_FAP_ShellNewBackup", "REG_SZ", "1")
 			Else
-				RegWrite($sExtKey, "_PFA_ShellNewBackup", "REG_SZ", "0")
+				RegWrite($sExtKey, "_FAP_ShellNewBackup", "REG_SZ", "0")
 			EndIf
 		EndIf
 		If $sTemplate <> "" And FileExists($sTemplate) Then
@@ -2639,18 +2722,18 @@ EndFunc
 Func _RestoreShellNew($sExtension)
 	Local $sExtKey = "HKCU\Software\Classes\." & $sExtension
 	Local $sShellNew = $sExtKey & "\ShellNew"
-	Local $sBackup = $sExtKey & "\ShellNew_PFA_BACKUP"
-	Local $sMarker = RegRead($sExtKey, "_PFA_ShellNewBackup")
+	Local $sBackup = $sExtKey & "\ShellNew_FAP_BACKUP"
+	Local $sMarker = RegRead($sExtKey, "_FAP_ShellNewBackup")
 
 	If $sMarker = "" Then Return
 	RegDelete($sShellNew)
 	If $sMarker = "1" And _RegKeyExists($sBackup) Then _RegCopyKey($sBackup, $sShellNew)
 	RegDelete($sBackup)
-	RegDelete($sExtKey, "_PFA_ShellNewBackup")
+	RegDelete($sExtKey, "_FAP_ShellNewBackup")
 EndFunc
 
 Func _RegRenameKey($sKey, $sNewName)
-	; Renames the last part of an HKCU key, e.g. _RegRenameKey("HKCU\...\FileExts\.zip", ".zip_PFA").
+	; Renames the last part of an HKCU key, e.g. _RegRenameKey("HKCU\...\FileExts\.zip", ".zip_FAP").
 	; Unlike copy + delete this keeps every subkey, value and last-write time as it is.  Returns True on success.
 	Local $iPos = StringInStr($sKey, "\", 0, -1)
 	If $iPos = 0 Or StringLeft($sKey, 5) <> "HKCU\" Then Return SetError(1, 0, False)
@@ -2666,6 +2749,11 @@ Func _RegRenameKey($sKey, $sNewName)
 	Return True
 EndFunc
 
+Func _IsOwnFtype($sFtype)
+	; a file type (class) made by this program: FAP_<ext> (older versions: PortableFileAssoc_<ext>)
+	Return (StringLeft($sFtype, 4) = "FAP_" Or StringLeft($sFtype, 17) = "PortableFileAssoc")
+EndFunc
+
 Func _WriteFtypeSettings()
 	Local $aExts = IniReadSectionNames($typesini)
 	If IsArray($aExts) Then
@@ -2675,26 +2763,26 @@ Func _WriteFtypeSettings()
 			Local $fHide = (Number(IniRead($typesini, $aExts[$i], "hide", $GUI_UNCHECKED)) = $GUI_CHECKED)
 			Local $fCopyhost = (Number(IniRead($typesini, $aExts[$i], "copyhost", $GUI_UNCHECKED)) = $GUI_CHECKED)
 			Local $fHostoverride = (Number(IniRead($typesini, $aExts[$i], "hostoverride", $GUI_UNCHECKED)) = $GUI_CHECKED)
-			Local $ftype = "PortableFileAssoc_" & $aExts[$i]
+			Local $ftype = "FAP_" & $aExts[$i]
 			Local $origftype = RegRead("HKCR\." & $aExts[$i], "")
 			Local $origdefaultassoc = RegRead("HKCR\" & $origftype & "\shell", "")
-			Local $defPFAassoc = IniRead($typesini, $aExts[$i], "default", "(no default)")
+			Local $defFAPassoc = _FtypeDefaultAssoc($aExts[$i]) ; Global Default of an association, else the own setting
 			; Windows' own default app for the extension is stored in FileExts\.ext\UserChoice.  It is protected by a hash that
 			; includes the key's last write time, so a key that is deleted and written back later is rejected by Windows and the
 			; default app is reset (ie WinRAR is no longer the default for zip after Remove).  UserChoice is therefore left
-			; untouched unless a PFA default association must take over the double-click action of this extension.
+			; untouched unless a FAP default association must take over the double-click action of this extension.
 			Local $bHostDef = ($fCopyhost And ($origdefaultassoc <> "" Or ($origftype <> "" And _RegKeyExists("HKCR\" & $origftype & "\shell\open"))))
-			Local $bPFAdefault = ($defPFAassoc <> "(no default)" And Not ($fHostoverride And $bHostDef))
-			Local $bKeepUC = (Not $bPFAdefault And _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "\UserChoice"))
+			Local $bFAPdefault = ($defFAPassoc <> "(no default)" And Not ($fHostoverride And $bHostDef))
+			Local $bKeepUC = (Not $bFAPdefault And _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "\UserChoice"))
 			; Extensions that already have an entry in Explorer's "New" menu (docx, xlsx, pptx, zip, rar, txt, ...) lose or break that
-			; entry when their file type is replaced by PortableFileAssoc_<ext>: Office entries disappear, others get a wrong icon
+			; entry when their file type is replaced by FAP_<ext>: Office entries disappear, others get a wrong icon
 			; or name.  Such an extension is therefore left alone (the context-menu entries are still added, see _FileAssociations)
-			; unless a setting of the File Types dialog needs the file type: PFA default association, Hide extension,
+			; unless a setting of the File Types dialog needs the file type: FAP default association, Hide extension,
 			; Copy Host Associations or Show in New menu.
 			Local $bWantNew = (Number(IniRead($typesini, $aExts[$i], "shownew", $GUI_UNCHECKED)) = $GUI_CHECKED)
 			Local $bHostNew = (_RegKeyExists("HKCR\." & $aExts[$i] & "\ShellNew") Or _
 					($origftype <> "" And _RegKeyExists("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew")))
-			If $bHostNew And Not ($bPFAdefault Or $fHide Or $fCopyhost Or $bWantNew) Then ContinueLoop
+			If $bHostNew And Not ($bFAPdefault Or $fHide Or $fCopyhost Or $bWantNew) Then ContinueLoop
 			; write extension data
 			If _RegKeyExists("HKCU\Software\Classes\." & $aExts[$i]) Then
 				; extension exists
@@ -2714,14 +2802,14 @@ Func _WriteFtypeSettings()
 			; Optional Explorer > New submenu entry (creates an empty file).
 			Local $fShowNew = (Number(IniRead($typesini, $aExts[$i], "shownew", $GUI_UNCHECKED)) = $GUI_CHECKED)
 			; Set the file type display name.  Explorer's New menu shows this name for every ShellNew entry that the host already has
-			; for the extension (ie zip, rar), so the "PFA_<ext> File" name is only used when "Show in New menu" is ticked.
+			; for the extension (ie zip, rar), so the "FAP_<ext> File" name is only used when "Show in New menu" is ticked.
 			; Otherwise the display name of the original (host) file type is kept.
 			Local $newDisplayName = "", $sFriendly = ""
 			If $fShowNew Then
 				$newDisplayName = StringStripWS(IniRead($typesini, $aExts[$i], "newname", ""), 3)
-				If $newDisplayName = "" Then $newDisplayName = "PFA_" & $aExts[$i] & " File"
+				If $newDisplayName = "" Then $newDisplayName = "FAP_" & $aExts[$i] & " File"
 			Else
-				If $origftype <> "" And StringLeft($origftype, 17) <> "PortableFileAssoc" Then
+				If $origftype <> "" And Not _IsOwnFtype($origftype) Then
 					$newDisplayName = RegRead("HKCR\" & $origftype, "")
 					$sFriendly = RegRead("HKCR\" & $origftype, "FriendlyTypeName")
 				EndIf
@@ -2743,8 +2831,8 @@ Func _WriteFtypeSettings()
 			EndIf
 			_ConfigureShellNew($aExts[$i], $fShowNew, $sTemplate)
 			; the host's New-menu entry of this extension is stored below its file type (ie .docx\Word.Document.12\ShellNew) and is only
-			; used while that file type is the extension's file type: copy it to the PFA file type so the entry stays in the New menu
-			If Not $fShowNew And $origftype <> "" And StringLeft($origftype, 17) <> "PortableFileAssoc" And _
+			; used while that file type is the extension's file type: copy it to the FAP file type so the entry stays in the New menu
+			If Not $fShowNew And $origftype <> "" And Not _IsOwnFtype($origftype) And _
 					_RegKeyExists("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew") Then _
 				_RegCopyKey("HKCR\." & $aExts[$i] & "\" & $origftype & "\ShellNew", "HKCU\Software\Classes\." & $aExts[$i] & "\" & $ftype & "\ShellNew")
 			; backup FileExts key
@@ -2755,18 +2843,18 @@ Func _WriteFtypeSettings()
 			ElseIf _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) Then ; key exists
 				; backup
 				If _RegKeyExists($sFE & "\UserChoice") Or _RegKeyExists($sFE & "\UserChoiceLatest") Then
-					; the PFA default association takes over this extension.  Windows' own default app (UserChoice) is protected by a hash
+					; the FAP default association takes over this extension.  Windows' own default app (UserChoice) is protected by a hash
 					; that includes the key's last write time, so a COPY of it is rejected when it is put back on Remove (the default app,
 					; ie WinRAR for zip, is lost).  The key is therefore RENAMED, its subkeys keep their data and time.
-					; If Windows does not allow the rename, the user's choice is left untouched (the PFA default may then not take effect).
-					$fFeDone = _RegRenameKey($sFE, "." & $aExts[$i] & "_PFA")
+					; If Windows does not allow the rename, the user's choice is left untouched (the FAP default may then not take effect).
+					$fFeDone = _RegRenameKey($sFE, "." & $aExts[$i] & "_FAP")
 				Else
-					_RegMoveKey($sFE, $sFE & "_PFA")
+					_RegMoveKey($sFE, $sFE & "_FAP")
 				EndIf
 				If $fFeDone Then
 					; don't copy any defaut "Open With..." settings
-					_RegCopyKey($sFE & "_PFA\OpenWithList", $sFE & "\OpenWithList")
-					_RegCopyKey($sFE & "_PFA\OpenWithProgids", $sFE & "\OpenWithProgids")
+					_RegCopyKey($sFE & "_FAP\OpenWithList", $sFE & "\OpenWithList")
+					_RegCopyKey($sFE & "_FAP\OpenWithProgids", $sFE & "\OpenWithProgids")
 				EndIf
 			Else
 				; fake backup
@@ -2793,7 +2881,7 @@ Func _WriteFtypeSettings()
 				WEnd
 			EndIf
 			; default association value
-			If $defPFAassoc = "(no default)" Or $fHostoverride Then
+			If $defFAPassoc = "(no default)" Or $fHostoverride Then
 				; try host default first
 				If $fCopyhost And $origdefaultassoc <> "" Then
 					; write default host association
@@ -2806,13 +2894,13 @@ Func _WriteFtypeSettings()
 			EndIf
 			; host override true if originally true and successfully set a host default association
 			$fHostoverride = $fHostoverride And (RegRead("HKCU\Software\Classes\" & $ftype & "\shell", "") <> "")
-			; set PFA default if not empty and host did not override
-			If $defPFAassoc <> "(no default)" And Not $fHostoverride Then
-				; write default PFA association
+			; set FAP default if not empty and host did not override
+			If $defFAPassoc <> "(no default)" And Not $fHostoverride Then
+				; write default FAP association
 				For $j = 1 To $aDefaultAssociations[0]
 					Local $aSplit = StringSplit($aDefaultAssociations[$j], ",")
 					; aSplit: [1] = extension, [2] = association name, [3] = association command
-					If $aExts[$i] = $aSplit[1] And $defPFAassoc = $aSplit[2] Then
+					If $aExts[$i] = $aSplit[1] And $defFAPassoc = $aSplit[2] Then
 						; extension and association match, write command
 						RegWrite("HKCU\Software\Classes\" & $ftype & "\shell", "", "REG_SZ", $aSplit[3])
 						ExitLoop
@@ -2828,7 +2916,7 @@ Func _WriteFtypeSettings()
 				If $openverb <> "" Then
 					$opencmd = RegRead("HKCU\Software\Classes\" & $ftype & "\shell\" & $openverb & "\command", "")
 				Else
-					; we have to write something, so use PFA's first association
+					; we have to write something, so use FAP's first association
 					Local $sections = _ReadINISections()
 					For $k = 1 To $sections[0]
 						; search mode array of each section for matching filetype, use that command
@@ -2845,17 +2933,17 @@ Func _WriteFtypeSettings()
 			EndIf
 			; write icon
 			Local $failover = False
-			; PFA default association overrides host icon, if host doesn't take precedence
-			; if host associations are active and no PFA default set or host takes precedence, use host icon if it exists, otherwise failover to PFA icon
-			If $fCopyhost And ($fHostoverride Or $defPFAassoc = "(no default)") Then
+			; FAP default association overrides host icon, if host doesn't take precedence
+			; if host associations are active and no FAP default set or host takes precedence, use host icon if it exists, otherwise failover to FAP icon
+			If $fCopyhost And ($fHostoverride Or $defFAPassoc = "(no default)") Then
 				If _RegKeyExists("HKCR\" & $origftype & "\DefaultIcon") Then
 					_RegCopyKey("HKCR\" & $origftype & "\DefaultIcon", "HKCU\Software\Classes\" & $ftype & "\DefaultIcon")
 				Else
 					$failover = True
 				EndIf
 			EndIf
-			; write PFA icon if it exists and host associations are not active, there is a PFA default association, or the host icon was not found
-			If $icon <> "" And (Not $fCopyhost Or ($defPFAassoc <> "(no default)" And Not $fHostoverride) Or $failover) Then _
+			; write FAP icon if it exists and host associations are not active, there is a FAP default association, or the host icon was not found
+			If $icon <> "" And (Not $fCopyhost Or ($defFAPassoc <> "(no default)" And Not $fHostoverride) Or $failover) Then _
 				RegWrite("HKCU\Software\Classes\" & $ftype & "\DefaultIcon", "", "REG_SZ", $icon)
 			; write NeverShowExt value
 			If $fHide Then RegWrite("HKCU\Software\Classes\" & $ftype, "NeverShowExt", "REG_SZ", "")
@@ -2873,10 +2961,10 @@ Func _RemoveFtypeSettings($fFinal = False)
 	If IsArray($aExts) Then
 		For $i = 1 To $aExts[0]
 			If $aExts[$i] = "exe" Or $aExts[$i] = "com" Or $aExts[$i] = "" Then ContinueLoop
-			$ftype = "PortableFileAssoc_" & $aExts[$i]
+			$ftype = "FAP_" & $aExts[$i]
 			If $fFinal Then
 				;; ====== do these only on final removal
-				; remove PFA New-menu registration value and file type
+				; remove FAP New-menu registration value and file type
 				_RestoreShellNew($aExts[$i])
 				RegDelete("HKCU\Software\Classes\" & $ftype)
 				RegDelete("HKCU\Software\Classes\." & $aExts[$i] & "\" & $ftype) ; copy of the host's New-menu entry
@@ -2919,11 +3007,11 @@ Func _RemoveFtypeSettings($fFinal = False)
 				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
 				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_none")
 			; fake key does not exist, restore backup if it exists
-			ElseIf _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA") Then ; key exists
-				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) ; PFA's temporary .ext key
+			ElseIf _RegKeyExists("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_FAP") Then ; key exists
+				RegDelete("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i]) ; FAP's temporary .ext key
 				; rename the original key back (keeps UserChoice valid), copy only if the rename is not possible
-				If Not _RegRenameKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA", "." & $aExts[$i]) Then _
-						_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_PFA", _
+				If Not _RegRenameKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_FAP", "." & $aExts[$i]) Then _
+						_RegMoveKey("HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i] & "_FAP", _
 								"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\." & $aExts[$i])
 			; else already in original state
 			EndIf
@@ -2944,9 +3032,9 @@ Func _DoSendToShortcuts($fAdd = True)
 			If $fAdd Then
 				; [0] = exe path, [1] = args
 				$aSplit = _CommandSplit(_GetFullCommand($aItems[$i][1]))
-				FileCreateShortcut($aSplit[0], $SendTo & "\" & $aItems[$i][0] & " PFA.lnk", "", $aSplit[1])
+				FileCreateShortcut($aSplit[0], $SendTo & "\" & $aItems[$i][0] & " FAP.lnk", "", $aSplit[1])
 			Else
-				FileDelete($SendTo & "\" & $aItems[$i][0] & " PFA.lnk")
+				FileDelete($SendTo & "\" & $aItems[$i][0] & " FAP.lnk")
 			EndIf
 		Next
 	EndIf
@@ -3006,10 +3094,10 @@ Func _FileAssociations($work)
 				$command = _RegCommandFor($cmdRaw, $bAdmin) ; commands with %%1 get the multi-file launcher
 				$sBase = "HKCU\Software\Classes\"
 				; special targets
-				If $bFiles Then _WriteVerb(_GroupVerbKey($sBase & "*\shell", "PortableFileAssoc_" & $section[$i], $sGroup, $sGroupIcon, $bSingle), $title, $command, $icon, $bSingle)
-				If $bFolders Then _WriteVerb(_GroupVerbKey($sBase & "Directory\shell", "PortableFileAssoc_" & $section[$i], $sGroup, $sGroupIcon, $bSingle), $title, _RegCommandFor($cmdFolder, $bAdmin), $icon, $bSingle)
-				If $bDrives Then _WriteVerb(_GroupVerbKey($sBase & "Drive\shell", "PortableFileAssoc_" & $section[$i], $sGroup, $sGroupIcon, $bSingle), $title, _RegCommandFor($cmdDrive, $bAdmin), $icon, $bSingle)
-				If $bBackground Then _WriteVerb(_GroupVerbKey($sBase & "Directory\Background\shell", "PortableFileAssoc_" & $section[$i], $sGroup, $sGroupIcon, False), $title, _RegCommandBg($cmdRaw, $bAdmin), $icon)
+				If $bFiles Then _WriteVerb(_GroupVerbKey($sBase & "*\shell", "FAP_" & $section[$i], $sGroup, $sGroupIcon, $bSingle), $title, $command, $icon, $bSingle)
+				If $bFolders Then _WriteVerb(_GroupVerbKey($sBase & "Directory\shell", "FAP_" & $section[$i], $sGroup, $sGroupIcon, $bSingle), $title, _RegCommandFor($cmdFolder, $bAdmin), $icon, $bSingle)
+				If $bDrives Then _WriteVerb(_GroupVerbKey($sBase & "Drive\shell", "FAP_" & $section[$i], $sGroup, $sGroupIcon, $bSingle), $title, _RegCommandFor($cmdDrive, $bAdmin), $icon, $bSingle)
+				If $bBackground Then _WriteVerb(_GroupVerbKey($sBase & "Directory\Background\shell", "FAP_" & $section[$i], $sGroup, $sGroupIcon, False), $title, _RegCommandBg($cmdRaw, $bAdmin), $icon)
 				If $bRecycle Then _WriteVerb(_GroupVerbKey($sBase & "CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell", $title, $sGroup, $sGroupIcon, False), $title, _RegCommand($cmdRaw), $icon)
 				; file extensions
 				For $j = 1 To $mode[0]
@@ -3022,20 +3110,20 @@ Func _FileAssociations($work)
 						Case "com"
 							$targetClass = "comfile"
 						Case Else
-							$targetClass = "PortableFileAssoc_" & $mode[$j]
+							$targetClass = "FAP_" & $mode[$j]
 					EndSwitch
 					; write association data
-					$verbKey = _GroupVerbKey($sBase & $targetClass & "\shell", "PFA_" & $i & "_" & $j, $sGroup, $sGroupIcon, $bSingle)
+					$verbKey = _GroupVerbKey($sBase & $targetClass & "\shell", "FAP_" & $i & "_" & $j, $sGroup, $sGroupIcon, $bSingle)
 					_WriteVerb($verbKey, $title, $command, $icon, $bSingle)
-					; Also write the same verb to SystemFileAssociations\.ext.  Windows ignores the .ext -> PortableFileAssoc_ext
+					; Also write the same verb to SystemFileAssociations\.ext.  Windows ignores the .ext -> FAP_ext
 					; link when the user has a default app chosen (FileExts\.ext\UserChoice, usual for mp3, mp4, ...), so the verb
-					; in the PortableFileAssoc_ext class would not be shown.  SystemFileAssociations is always merged into the menu.
+					; in the FAP_ext class would not be shown.  SystemFileAssociations is always merged into the menu.
 					If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" Then _
-						_WriteVerb(_GroupVerbKey($sBase & "SystemFileAssociations\." & $mode[$j] & "\shell", "PFA_" & $i & "_" & $j, $sGroup, $sGroupIcon, $bSingle), $title, $command, $icon, $bSingle)
-					; Only normal extensions are listed as configurable PFA file types.
+						_WriteVerb(_GroupVerbKey($sBase & "SystemFileAssociations\." & $mode[$j] & "\shell", "FAP_" & $i & "_" & $j, $sGroup, $sGroupIcon, $bSingle), $title, $command, $icon, $bSingle)
+					; Only normal extensions are listed as configurable FAP file types.
 					If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" And $sGroup = "" Then ; (entries in a group have no top level verb: no default action)
 						$aDefaultAssociations[0] += 1
-						_ArrayAdd($aDefaultAssociations, $mode[$j] & "," & $section[$i] & ",PFA_" & $i & "_" & $j)
+						_ArrayAdd($aDefaultAssociations, $mode[$j] & "," & $section[$i] & ",FAP_" & $i & "_" & $j)
 					EndIf
 				Next
 				; backup Applications keys
@@ -3069,10 +3157,10 @@ Func _FileAssociations($work)
 				If $sRaw <> "" Then $cmdFolder = _GetFullCommand($sRaw)
 				If $cmdFolder = "" Then $cmdFolder = $cmdRaw
 				$sBase = "HKCU\Software\Classes\"
-				If _AssocFlag($section[$i], "files") Then _RegDeleteItem($sBase & "*\shell", "PortableFileAssoc_" & $section[$i], $sBase & "*")
-				If _AssocFlag($section[$i], "folders") Then _RegDeleteItem($sBase & "Directory\shell", "PortableFileAssoc_" & $section[$i], $sBase & "Directory")
-				If _AssocFlag($section[$i], "drives") Then _RegDeleteItem($sBase & "Drive\shell", "PortableFileAssoc_" & $section[$i], $sBase & "Drive")
-				If _AssocFlag($section[$i], "background") Then _RegDeleteItem($sBase & "Directory\Background\shell", "PortableFileAssoc_" & $section[$i], $sBase & "Directory")
+				If _AssocFlag($section[$i], "files") Then _RegDeleteItem($sBase & "*\shell", "FAP_" & $section[$i], $sBase & "*")
+				If _AssocFlag($section[$i], "folders") Then _RegDeleteItem($sBase & "Directory\shell", "FAP_" & $section[$i], $sBase & "Directory")
+				If _AssocFlag($section[$i], "drives") Then _RegDeleteItem($sBase & "Drive\shell", "FAP_" & $section[$i], $sBase & "Drive")
+				If _AssocFlag($section[$i], "background") Then _RegDeleteItem($sBase & "Directory\Background\shell", "FAP_" & $section[$i], $sBase & "Directory")
 				If _AssocFlag($section[$i], "recycle") Then _
 						_RegDeleteItem($sBase & "CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\shell", $title, $sBase & "CLSID")
 				For $j = 1 To $mode[0]
@@ -3083,11 +3171,11 @@ Func _FileAssociations($work)
 						Case "com"
 							$targetClass = "comfile"
 						Case Else
-							$targetClass = "PortableFileAssoc_" & $mode[$j]
+							$targetClass = "FAP_" & $mode[$j]
 					EndSwitch
-					_RegDeleteItem($sBase & $targetClass & "\shell", "PFA_" & $i & "_" & $j, "")
+					_RegDeleteItem($sBase & $targetClass & "\shell", "FAP_" & $i & "_" & $j, "")
 					If StringLower($mode[$j]) <> "exe" And StringLower($mode[$j]) <> "com" Then _
-						_RegDeleteItem($sBase & "SystemFileAssociations\." & $mode[$j] & "\shell", "PFA_" & $i & "_" & $j, _
+						_RegDeleteItem($sBase & "SystemFileAssociations\." & $mode[$j] & "\shell", "FAP_" & $i & "_" & $j, _
 								$sBase & "SystemFileAssociations\." & $mode[$j]) ; also removes the empty parent keys
 				Next
 				; reset default association array
@@ -3121,7 +3209,7 @@ EndFunc
 ; Entries can be put in a group.  A group has a name and an icon; its entries are shown in a submenu with that
 ; name and icon, entries without a group are shown directly in the context menu.
 ; INI ([<profile>_assoc.ini]):   [@group:<name>]  name=<name>  icon=<path[,index]>      and, in an association,  group=<name>
-; Registry:  <class>\shell\PFAGroup_<name>  (MUIVerb, Icon, SubCommands="")  with the entries in  ...\shell\PFAGroup_<name>\shell\<entry>
+; Registry:  <class>\shell\FAPGroup_<name>  (MUIVerb, Icon, SubCommands="")  with the entries in  ...\shell\FAPGroup_<name>\shell\<entry>
 ;=======================================================================================
 Func _GroupSec($sName)
 	Return "@group:" & $sName
@@ -3334,9 +3422,9 @@ EndFunc
 
 Func _GroupVerbKey($sShellKey, $sItem, $sGroup, $sGroupIcon, $bSingle)
 	; registry key of one entry.  Without a group: <shell>\<entry>.  With a group the entry is inside the submenu verb
-	; <shell>\PFAGroup_<name>\shell\<entry>; the submenu verb is written the first time it is needed.
+	; <shell>\FAPGroup_<name>\shell\<entry>; the submenu verb is written the first time it is needed.
 	If $sGroup = "" Then Return $sShellKey & "\" & $sItem
-	Local $sParent = $sShellKey & "\PFAGroup_" & _RegSafeName($sGroup)
+	Local $sParent = $sShellKey & "\FAPGroup_" & _RegSafeName($sGroup)
 	If Not IsObj($oGrp) Then $oGrp = ObjCreate("Scripting.Dictionary")
 	If Not $oGrp.Exists($sParent) Then
 		RegWrite($sParent, "MUIVerb", "REG_SZ", $sGroup)
@@ -3368,7 +3456,7 @@ Func _RegDeleteItem($sShellKey, $sItem, $sStopKey)
 	While 1
 		$sName = RegEnumKey($sShellKey, $k)
 		If @error Then ExitLoop
-		If StringLeft($sName, 9) = "PFAGroup_" Then
+		If StringLeft($sName, 9) = "FAPGroup_" Then
 			$aGrp[0] += 1
 			ReDim $aGrp[$aGrp[0] + 1]
 			$aGrp[$aGrp[0]] = $sName
@@ -3561,11 +3649,11 @@ EndFunc
 Func _AppKeyBackup($exename)
 	If $exename = "" Then Return
 	; if key and fake do not exist, backup original if it exists
-	If Not _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_PFA") And _
+	If Not _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_FAP") And _
 			Not _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_none") Then
 		If _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename) Then ; key exists
 			_RegMoveKey("HKCU\Software\Classes\Applications\" & $exename, _
-					"HKCU\Software\Classes\Applications\" & $exename & "_PFA")
+					"HKCU\Software\Classes\Applications\" & $exename & "_FAP")
 		Else
 			; fake backup
 			RegWrite("HKCU\Software\Classes\Applications\" & $exename & "_none")
@@ -3573,11 +3661,11 @@ Func _AppKeyBackup($exename)
 	; else already backed up, leave it alone
 	EndIf
 	If IsAdmin() Then ; admin account
-		If Not _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_PFA") And _
+		If Not _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_FAP") And _
 				Not _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_none") Then
 			If _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename) Then ; key exists
 				_RegMoveKey("HKLM\Software\Classes\Applications\" & $exename, _
-						"HKLM\Software\Classes\Applications\" & $exename & "_PFA")
+						"HKLM\Software\Classes\Applications\" & $exename & "_FAP")
 			Else
 				; fake backup
 				RegWrite("HKLM\Software\Classes\Applications\" & $exename & "_none")
@@ -3594,9 +3682,9 @@ Func _AppKeyRestore($exename)
 		RegDelete("HKCU\Software\Classes\Applications\" & $exename)
 		RegDelete("HKCU\Software\Classes\Applications\" & $exename & "_none")
 	; fake key does not exist, restore backup if it exists
-	ElseIf _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_PFA") Then ; key exists
+	ElseIf _RegKeyExists("HKCU\Software\Classes\Applications\" & $exename & "_FAP") Then ; key exists
 		RegDelete("HKCU\Software\Classes\Applications\" & $exename)
-		_RegMoveKey("HKCU\Software\Classes\Applications\" & $exename & "_PFA", _
+		_RegMoveKey("HKCU\Software\Classes\Applications\" & $exename & "_FAP", _
 				"HKCU\Software\Classes\Applications\" & $exename)
 	; else already in original state
 	EndIf
@@ -3606,9 +3694,9 @@ Func _AppKeyRestore($exename)
 			RegDelete("HKLM\Software\Classes\Applications\" & $exename)
 			RegDelete("HKLM\Software\Classes\Applications\" & $exename & "_none")
 		; fake key does not exist, restore backup if it exists
-		ElseIf _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_PFA") Then ; key exists
+		ElseIf _RegKeyExists("HKLM\Software\Classes\Applications\" & $exename & "_FAP") Then ; key exists
 			RegDelete("HKLM\Software\Classes\Applications\" & $exename)
-			_RegMoveKey("HKLM\Software\Classes\Applications\" & $exename & "_PFA", _
+			_RegMoveKey("HKLM\Software\Classes\Applications\" & $exename & "_FAP", _
 					"HKLM\Software\Classes\Applications\" & $exename)
 		; else already in original state
 		EndIf
@@ -3621,7 +3709,7 @@ EndFunc
 ; A command that contains %%1 receives ALL selected files in ONE run:
 ;     "FastCopy.exe" %%1      ->      FastCopy.exe "file1" "file2" "file3"
 ; Explorer starts one process per selected file, so for such commands the registry entry is a small
-; wrapper:  PFA.exe multi_open <hex command> "%1"
+; wrapper:  FAP.exe multi_open <hex command> "%1"
 ; The wrapper processes pool their files (temp queue files); the first one starts the real command.
 ; Files are passed in name order (same as Explorer's default sort).
 ;=======================================================================================
@@ -3752,7 +3840,7 @@ Func _MultiOpen($bAdmin = False)
 	Local $sTemplate = BinaryToString(Binary("0x" & $CmdLine[2]), 4)
 	If $sTemplate = "" Or Not StringInStr($sTemplate, "%%1") Then Return
 	Local $sKey = _MultiHash($CmdLine[2])
-	Local $sBase = @TempDir & "\PFA_multi_" & $sKey & "_"
+	Local $sBase = @TempDir & "\FAP_multi_" & $sKey & "_"
 	Local $sMine = $sBase & @AutoItPID
 	Local $i, $sList = "", $sArg, $hFile, $aErr, $iLast, $iCount, $hQuiet, $hTotal, $aPaths
 
@@ -3771,7 +3859,7 @@ Func _MultiOpen($bAdmin = False)
 	FileMove($sMine & ".tmp", $sMine & ".q", 1)
 
 	; only the first process (mutex owner) collects the files and starts the command
-	DllCall("kernel32.dll", "handle", "CreateMutexW", "ptr", 0, "bool", False, "wstr", "PFA_multi_" & $sKey)
+	DllCall("kernel32.dll", "handle", "CreateMutexW", "ptr", 0, "bool", False, "wstr", "FAP_multi_" & $sKey)
 	$aErr = DllCall("kernel32.dll", "dword", "GetLastError")
 	If Not @error And $aErr[0] = 183 Then Return ; ERROR_ALREADY_EXISTS: another process is collecting
 
@@ -3801,7 +3889,7 @@ EndFunc
 ;=======================================================================================
 ; "background" = empty space of a folder window / the desktop (like "Open Terminal here").
 ; The command gets the current folder through %V, e.g.   "wt.exe" -d "%V"   or   cmd.exe /k cd /d "%V"
-; Registry entry:  PFA.exe bg_open <hex command> "%V."   (the added dot keeps a drive root like C:\ from
+; Registry entry:  FAP.exe bg_open <hex command> "%V."   (the added dot keeps a drive root like C:\ from
 ; ending in \" which most programs read as an escaped quote). The launcher removes the dot again,
 ; starts the command in that folder and passes the path safely quoted (C:\ becomes "C:\\").
 ;=======================================================================================
@@ -4135,9 +4223,9 @@ EndFunc
 ;=======================================================================================
 ; Settings window (gear icon).  Saved in Data\settings\settings.ini, section [settings]:
 ;     theme=system | light | dark
-;     addassociationonstart=true / false     add the associations when PFA starts (without command line arguments)
-;     removeonexit=true / false              remove the associations when PFA is closed
-;     checkupdateonstartup=true / false      look for a new version in the background when PFA starts
+;     addassociationonstart=true / false     add the associations when FAP starts (without command line arguments)
+;     removeonexit=true / false              remove the associations when FAP is closed
+;     checkupdateonstartup=true / false      look for a new version in the background when FAP starts
 ;     startminimized=true / false            true = start minimized to the tray, false = show the main window
 ;     closetotray=true / false               true = the close button (X) minimizes to the tray
 ; (true, 1, yes, on = on;  false, 0, blank = off).  Only the splash setting is in <exe name>.ini next to the exe
@@ -4526,7 +4614,7 @@ EndFunc
 
 Func _SplashShow(ByRef $hTimer)
 	; shows the embedded splash image (_SplashData.au3) in its own borderless window, returns the window handle (0 = no splash)
-	Local $sFile = @TempDir & "\PFA_splash_" & @AutoItPID & ".jpg", $bData, $hFile, $hGUI, $idPic
+	Local $sFile = @TempDir & "\FAP_splash_" & @AutoItPID & ".jpg", $bData, $hFile, $hGUI, $idPic
 	If _SplashDisabledByINI() Then Return 0
 	$bData = _B64ToBinary(_SplashJpgBase64())
 	If @error Or BinaryLen($bData) = 0 Then Return 0
@@ -4851,7 +4939,7 @@ EndFunc
 
 #Region Embedded Readme
 ; The text of Readme.txt, built into the program (shown by the ? button of the Associations window).
-; Nothing is written to a file.  Keep it in sync with Readme.txt when the Readme changes.
+; Nothing is written to a file.  The text is kept here only (there is no separate Readme.txt).
 Func _ReadmeText()
 	Local $s = ""
 	$s &= "==========" & @CRLF
@@ -4958,7 +5046,7 @@ Func _ReadmeText()
 	$s &= "               different behaviour." & @CRLF
 	$s &= "               Admin entries do not start your program directly.  They start FileAssociatorPortable.exe" & @CRLF
 	$s &= "               (internal parameters multi_open_admin / bg_open_admin), which then starts the program" & @CRLF
-	$s &= "               elevated.  So PFA must stay at the same place while associations are active." & @CRLF
+	$s &= "               elevated.  So FAP must stay at the same place while associations are active." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Title = File Association Name as it will appear in the file's context menu (make sure it is UNIQUE so" & @CRLF
 	$s &= "        it does not conflict with local entries)." & @CRLF
@@ -4978,7 +5066,7 @@ Func _ReadmeText()
 	$s &= "          %%1  = ALL selected items in ONE run, each one in quotes." & @CRLF
 	$s &= "                 Example -  ""X:\FastCopy\FastCopy.exe"" %%1" & @CRLF
 	$s &= "                 With three files selected this runs:  FastCopy.exe ""file1"" ""file2"" ""file3""" & @CRLF
-	$s &= "                 Notes:  Explorer starts one process per selected item, so PFA registers a small" & @CRLF
+	$s &= "                 Notes:  Explorer starts one process per selected item, so FAP registers a small" & @CRLF
 	$s &= "                 wrapper (FileAssociatorPortable.exe multi_open ...).  The wrapper processes collect their" & @CRLF
 	$s &= "                 files and the first one starts your command (it waits about 1.5 seconds for the other" & @CRLF
 	$s &= "                 files).  Files are passed in name order, like Explorer's default sort.  Very long" & @CRLF
@@ -4996,9 +5084,9 @@ Func _ReadmeText()
 	$s &= "                 safely (as ""C:\\""), so terminals do not fail on the trailing backslash.  For Background" & @CRLF
 	$s &= "                 %V, %1 and %%1 all mean ""this folder""." & @CRLF
 	$s &= "                 When ""Run as Admin"" is ticked, %1 commands of Files, Folders and Drives are started the" & @CRLF
-	$s &= "                 same way (through PFA) and %V / %1 mean ""the clicked-on item""." & @CRLF
+	$s &= "                 same way (through FAP) and %V / %1 mean ""the clicked-on item""." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "          NOTE:  PFA must stay at the same place while associations are active, because %%1 and" & @CRLF
+	$s &= "          NOTE:  FAP must stay at the same place while associations are active, because %%1 and" & @CRLF
 	$s &= "                 Background entries start FileAssociatorPortable.exe." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "          The Command box is disabled when only Folders and / or Drives are ticked (no Files, Recycle Bin," & @CRLF
@@ -5057,7 +5145,7 @@ Func _ReadmeText()
 	$s &= "Notes:  The submenu is used for every target of the entry (files, folders, drives, background, recycle bin and" & @CRLF
 	$s &= "        file extensions).  Entries of different associations can share a group.  For a file extension an entry" & @CRLF
 	$s &= "        in a group has no default (double-click) action, because the double-click action needs a verb that is" & @CRLF
-	$s &= "        not in a submenu; it is not offered under ""Default PFA Association"" of the File Types window." & @CRLF
+	$s &= "        not in a submenu; it is not offered under ""Default FAP Association"" of the File Types window." & @CRLF
 	$s &= "        The submenu is only shown for several selected items when at least one of its entries is not" & @CRLF
 	$s &= "        'Single file type'." & @CRLF
 	$s &= "        Groups are stored in the association INI as [@group:<name>] (icon=<path,index>), the group of an" & @CRLF
@@ -5105,16 +5193,26 @@ Func _ReadmeText()
 	$s &= "        has it switched on is used.  Stored in the association INI as globalicon=<path,index> and" & @CRLF
 	$s &= "        globaliconon=1." & @CRLF
 	$s &= "" & @CRLF
+	$s &= "Global Default FAP Association = The SELECTED association becomes the Default FAP Association (double-click" & @CRLF
+	$s &= "        action) of ALL its file types.  The box is only available when a single association is selected in the" & @CRLF
+	$s &= "        Association list (not for ""All associations"") and not for an association that is in a group (an entry in" & @CRLF
+	$s &= "        a group has no default action).  While it is on, no separate Default FAP Association can be chosen for" & @CRLF
+	$s &= "        these file types (the list of the file type is locked and shows the association).  It does not change" & @CRLF
+	$s &= "        the Default FAP Association settings of the single file types: switch it off and they are available" & @CRLF
+	$s &= "        again.  It is saved with ""Save File Type"" and used instead of the own setting when the associations are" & @CRLF
+	$s &= "        added.  If a file type is in two associations, the association that has it switched on is used." & @CRLF
+	$s &= "        Stored in the association INI as globaldefault=1." & @CRLF
+	$s &= "" & @CRLF
 	$s &= "File Type = Selected file type." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Default PFA Association = Default PFA association for the selected extension (dbl-click action)." & @CRLF
+	$s &= "Default FAP Association = Default FAP association for the selected extension (dbl-click action)." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Hide Extension = Prevent the selected extension from being displayed in Explorer." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Copy Host Associations = Copy the file type associations already present on the host computer for the" & @CRLF
 	$s &= "                         selected extension." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Host Precedence = If host default association exists, it will take precedence over the PFA default." & @CRLF
+	$s &= "Host Precedence = If host default association exists, it will take precedence over the FAP default." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Iconfile = The file to extract the icon from.  This can be an .exe, .dll, or .ico file.  Used when a" & @CRLF
 	$s &= "           Host computer association is not the default action." & @CRLF
@@ -5127,9 +5225,9 @@ Func _ReadmeText()
 	$s &= "" & @CRLF
 	$s &= "Show in New menu in context menu = Adds the file type to Explorer's right-click > New submenu." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "New menu name = Name shown under right-click > New.  Default: PFA_<extension> File." & @CRLF
+	$s &= "New menu name = Name shown under right-click > New.  Default: FAP_<extension> File." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Use template file = New items are created from a template instead of an empty file.  PFA looks for the" & @CRLF
+	$s &= "Use template file = New items are created from a template instead of an empty file.  FAP looks for the" & @CRLF
 	$s &= "                    exact filename  Data\newitems\<EXTENSION IN CAPITALS>.<extension>  (ie Data\newitems\TXT.txt)." & @CRLF
 	$s &= "                    A message appears if the file is missing.  The host's own ""New"" entry for the extension" & @CRLF
 	$s &= "                    is backed up and restored when the associations are removed." & @CRLF
@@ -5145,25 +5243,25 @@ Func _ReadmeText()
 	$s &= "For new file extensions, the icon will initially be set to the first association defined in the INI file" & @CRLF
 	$s &= "which is associated with the extension." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "When selecting a host default, PFA first looks to see if one is explicitly defined.  If so this association" & @CRLF
-	$s &= "is used.  If not, PFA searches for a registry verb named 'open' and uses this association." & @CRLF
+	$s &= "When selecting a host default, FAP first looks to see if one is explicitly defined.  If so this association" & @CRLF
+	$s &= "is used.  If not, FAP searches for a registry verb named 'open' and uses this association." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "PFA's behavior when applying the default association and icon depends on several factors:" & @CRLF
+	$s &= "FAP's behavior when applying the default association and icon depends on several factors:" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "1)  A PFA default association is selected:" & @CRLF
+	$s &= "1)  A FAP default association is selected:" & @CRLF
 	$s &= "a)  Host Precedence is selected:  If a host default association exists it will be set as the default and the" & @CRLF
-	$s &= "host DefaultIcon will be used.  If a DefaultIcon does not exist, the PFA icon will be used.  If a host default" & @CRLF
-	$s &= "is not found, the PFA default association and DefaultIcon will be used.  If no default is found and no PFA" & @CRLF
-	$s &= "default is set, then the OS will decide what association to use and the PFA icon will be used." & @CRLF
+	$s &= "host DefaultIcon will be used.  If a DefaultIcon does not exist, the FAP icon will be used.  If a host default" & @CRLF
+	$s &= "is not found, the FAP default association and DefaultIcon will be used.  If no default is found and no FAP" & @CRLF
+	$s &= "default is set, then the OS will decide what association to use and the FAP icon will be used." & @CRLF
 	$s &= "b)  Host Precedence is not selected:  The default action for this extension will be set to the selected" & @CRLF
-	$s &= "PFA association.  The DefaultIcon will be set to the user-defined icon from this dialog." & @CRLF
+	$s &= "FAP association.  The DefaultIcon will be set to the user-defined icon from this dialog." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "2)  No PFA default association is selected:" & @CRLF
+	$s &= "2)  No FAP default association is selected:" & @CRLF
 	$s &= "a)  Copy Host Associations is selected:  If a host default association exists it will be set as the default" & @CRLF
-	$s &= "and the host DefaultIcon will be used.  If a DefaultIcon does not exist, the PFA icon will be used." & @CRLF
-	$s &= "If no host default action is found, then the OS will decide what action to use as the default.  The PFA" & @CRLF
+	$s &= "and the host DefaultIcon will be used.  If a DefaultIcon does not exist, the FAP icon will be used." & @CRLF
+	$s &= "If no host default action is found, then the OS will decide what action to use as the default.  The FAP" & @CRLF
 	$s &= "defined icon will be used." & @CRLF
-	$s &= "b)  Copy Host Associations is not selected:  No default action is defined and the OS will decide.  The PFA" & @CRLF
+	$s &= "b)  Copy Host Associations is not selected:  No default action is defined and the OS will decide.  The FAP" & @CRLF
 	$s &= "defined icon will be used." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "" & @CRLF
@@ -5224,23 +5322,23 @@ Func _ReadmeText()
 	$s &= "                 icons (white instead of black) use dark colors." & @CRLF
 	$s &= "        settings.ini:  theme=system | light | dark" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Add associations on start = The associations of the last active profile are added automatically when PFA" & @CRLF
+	$s &= "Add associations on start = The associations of the last active profile are added automatically when FAP" & @CRLF
 	$s &= "        is started without command line arguments." & @CRLF
 	$s &= "        settings.ini:  addassociationonstart=true | false" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Remove associations on exit = The file associations are removed again when PFA is closed (Exit, close" & @CRLF
+	$s &= "Remove associations on exit = The file associations are removed again when FAP is closed (Exit, close" & @CRLF
 	$s &= "        button, Windows shutdown).  On by default." & @CRLF
 	$s &= "        settings.ini:  removeonexit=true | false" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Check for updates on startup = Looks for a newer version in the background each time PFA starts (a message" & @CRLF
+	$s &= "Check for updates on startup = Looks for a newer version in the background each time FAP starts (a message" & @CRLF
 	$s &= "        is only shown when a newer version exists).  The tray menu item ""Check for updates"" checks at any time." & @CRLF
 	$s &= "        (Releases: github.com/ShihabUddinX/FileAssociatorPortable)" & @CRLF
 	$s &= "        settings.ini:  checkupdateonstartup=true | false" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Start minimized = On: PFA starts minimized to the tray.  Off: the main window is shown." & @CRLF
+	$s &= "Start minimized = On: FAP starts minimized to the tray.  Off: the main window is shown." & @CRLF
 	$s &= "        settings.ini:  startminimized=true | false" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Disable splash screen = No splash screen when PFA starts." & @CRLF
+	$s &= "Disable splash screen = No splash screen when FAP starts." & @CRLF
 	$s &= "        FileAssociatorPortable.ini (next to the exe):  DisableSplash=true" & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Close button (X) minimizes to the tray = The close button hides the window in the tray instead of exiting" & @CRLF
@@ -5274,9 +5372,9 @@ Func _ReadmeText()
 	$s &= "" & @CRLF
 	$s &= "Refresh icons now = Sends the SHChangeNotify() system message so Explorer refreshes the icons." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Check for updates = Checks online if a newer version of PFA is available (needs an internet connection)." & @CRLF
+	$s &= "Check for updates = Checks online if a newer version of FAP is available (needs an internet connection)." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Exit = Close PFA." & @CRLF
+	$s &= "Exit = Close FAP." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "The options ""Add associations on start"" and ""Remove associations on exit"" are in the Settings window." & @CRLF
 	$s &= "" & @CRLF
@@ -5293,7 +5391,7 @@ Func _ReadmeText()
 	$s &= "===================" & @CRLF
 	$s &= "If run directly, the program starts the GUI where you can add or remove the associations, edit the" & @CRLF
 	$s &= "associations, file types and SendTo entries, or create a restore point.  Depending on the setting" & @CRLF
-	$s &= "'Remove associations on exit', the file associations are removed when PFA is closed." & @CRLF
+	$s &= "'Remove associations on exit', the file associations are removed when FAP is closed." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "You can also run the program via command line: FileAssociatorPortable.exe <param1> <param2>" & @CRLF
 	$s &= "" & @CRLF
@@ -5305,7 +5403,7 @@ Func _ReadmeText()
 	$s &= "" & @CRLF
 	$s &= "<param2> is an optional parameter and must specify the profile to activate and use.  This parameter is" & @CRLF
 	$s &= "ignored if <param1> is 'remove'.  If it is left out, the last active profile is used (the profile" & @CRLF
-	$s &= "that was selected the last time PFA was used, stored as 'active' in 'Data\Settings\profile.ini')." & @CRLF
+	$s &= "that was selected the last time FAP was used, stored as 'active' in 'Data\Settings\profile.ini')." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Examples -" & @CRLF
 	$s &= "    FileAssociatorPortable.exe add_gui                  (last active profile)" & @CRLF
@@ -5321,9 +5419,9 @@ Func _ReadmeText()
 	$s &= "window and comes to the front (an open dialog is brought to the front).  This also works when the running" & @CRLF
 	$s &= "program was started as administrator." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "If PFA is already running, there is one command line parameter available:" & @CRLF
+	$s &= "If FAP is already running, there is one command line parameter available:" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "exit = Close the running instance of PFA.  File associations are removed based on the setting" & @CRLF
+	$s &= "exit = Close the running instance of FAP.  File associations are removed based on the setting" & @CRLF
 	$s &= "       'Remove associations on exit'." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Internal parameters:  multi_open and bg_open are used by the context-menu entries created for %%1 and" & @CRLF
@@ -5349,15 +5447,16 @@ Func _ReadmeText()
 	$s &= "" & @CRLF
 	$s &= "Known Issues / Notes:" & @CRLF
 	$s &= "=====================" & @CRLF
-	$s &= "- The program was renamed from PortableFileAssociator to FileAssociatorPortable.  The old" & @CRLF
+	$s &= "- The program was renamed from PortableFileAssociator to FileAssociatorPortable (short name FAP).  The old" & @CRLF
 	$s &= "  PortableFileAssociator.ini (DisableSplash / DisableUpdateCheck) is copied to FileAssociatorPortable.ini" & @CRLF
-	$s &= "  automatically.  Data\settings and the registry entries (PortableFileAssoc_<ext>) keep their names, so profiles" & @CRLF
-	$s &= "  and Remove File Associations keep working.  Entries added by the old exe start the old exe: remove the" & @CRLF
-	$s &= "  associations with the old version first (or Remove, then Add once with the new exe)." & @CRLF
-	$s &= "- Windows' own default app for an extension (Settings > Default apps, ie WinRAR for zip) is left alone unless a PFA" & @CRLF
+	$s &= "  automatically; Data\settings and the INI files keep their names, so profiles keep working.  The registry" & @CRLF
+	$s &= "  entries now use the prefix FAP_ (before: PortableFileAssoc_ / PFA_).  Entries added by the old version start" & @CRLF
+	$s &= "  the old exe and are not found by the new one: remove the associations with the old version first (or Remove," & @CRLF
+	$s &= "  then Add once with the new exe)." & @CRLF
+	$s &= "- Windows' own default app for an extension (Settings > Default apps, ie WinRAR for zip) is left alone unless a FAP" & @CRLF
 	$s &= "  default association takes over that extension.  In that case the key is renamed, not copied, while the" & @CRLF
 	$s &= "  associations are active, so the default app is back after Remove.  If Windows refuses the rename, the" & @CRLF
-	$s &= "  default app is left untouched (the PFA default may then not take effect)." & @CRLF
+	$s &= "  default app is left untouched (the FAP default may then not take effect)." & @CRLF
 	$s &= "- Windows 11 shows these (classic) context-menu entries under ""Show more options""." & @CRLF
 	$s &= "- 'Single file type' relies on the Windows verb setting MultiSelectModel=Single.  If an entry still appears" & @CRLF
 	$s &= "  with several items selected on your Windows version, leave the option unchecked." & @CRLF
@@ -5368,7 +5467,7 @@ Func _ReadmeText()
 	$s &= "  Remove File Associations and then Add File Associations once after updating." & @CRLF
 	$s &= "- ""Run as Admin"" shows the Windows confirmation (UAC) every time the entry is used.  It is not available for" & @CRLF
 	$s &= "  the Recycle Bin." & @CRLF
-	$s &= "- After updating PFA, use Remove File Associations and then Add File Associations once, so the new" & @CRLF
+	$s &= "- After updating FAP, use Remove File Associations and then Add File Associations once, so the new" & @CRLF
 	$s &= "  commands (%%1, Run as Admin, Folder Command) are written to the registry." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "" & @CRLF

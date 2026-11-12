@@ -10,21 +10,21 @@
 ;~ Global Const $REG_DWORD = 4
 ;~ Global Const $REG_MULTI_SZ = 7
 
-Global Const $PFA_HKEY_CLASSES_ROOT = 0x80000000
-Global Const $PFA_HKEY_CURRENT_USER = 0x80000001
-Global Const $PFA_HKEY_LOCAL_MACHINE = 0x80000002
-Global Const $PFA_HKEY_USERS = 0x80000003
-Global Const $PFA_HKEY_PERFORMANCE_DATA = 0x80000004
-Global Const $PFA_HKEY_PERFORMANCE_TEXT = 0x80000050
-Global Const $PFA_HKEY_PERFORMANCE_NLSTEXT = 0x80000060
-Global Const $PFA_HKEY_CURRENT_CONFIG = 0x80000005
-Global Const $PFA_HKEY_DYN_DATA = 0x80000006
-Global Const $PFA_KEY_QUERY_VALUE = 0x0001
-Global Const $PFA_KEY_SET_VALUE = 0x0002
-Global Const $PFA_KEY_WRITE = 0x20006
-Global Const $PFA_REG_OPTION_NON_VOLATILE = 0x0000
-Global Const $PFA_REG_OPTION_VOLATILE = 0x0001
-Global Const $PFA_REG_QWORD = 11
+Global Const $FAP_HKEY_CLASSES_ROOT = 0x80000000
+Global Const $FAP_HKEY_CURRENT_USER = 0x80000001
+Global Const $FAP_HKEY_LOCAL_MACHINE = 0x80000002
+Global Const $FAP_HKEY_USERS = 0x80000003
+Global Const $FAP_HKEY_PERFORMANCE_DATA = 0x80000004
+Global Const $FAP_HKEY_PERFORMANCE_TEXT = 0x80000050
+Global Const $FAP_HKEY_PERFORMANCE_NLSTEXT = 0x80000060
+Global Const $FAP_HKEY_CURRENT_CONFIG = 0x80000005
+Global Const $FAP_HKEY_DYN_DATA = 0x80000006
+Global Const $FAP_KEY_QUERY_VALUE = 0x0001
+Global Const $FAP_KEY_SET_VALUE = 0x0002
+Global Const $FAP_KEY_WRITE = 0x20006
+Global Const $FAP_REG_OPTION_NON_VOLATILE = 0x0000
+Global Const $FAP_REG_OPTION_VOLATILE = 0x0001
+Global Const $FAP_REG_QWORD = 11
 
 Func _RegCopyKey($s_key, $d_key, $delete = False)
 	Local $i, $val, $data, $type, $key
@@ -157,20 +157,20 @@ Func _RegKeyEmpty($s_key)
 	EndIf
 EndFunc   ;==>_RegKeyEmpty
 
-Func _RegWrite($szKey, $szValue = "", $iType = -1, $bData = Default, $dwOptions = $PFA_REG_OPTION_NON_VOLATILE)
+Func _RegWrite($szKey, $szValue = "", $iType = -1, $bData = Default, $dwOptions = $FAP_REG_OPTION_NON_VOLATILE)
 	Local $hRoot = StringLeft($szKey, StringInStr($szKey, "\") - 1)
 	If $hRoot = "" Then $hRoot = $szKey ; passed a root key
 	Switch $hRoot
 		Case "HKEY_LOCAL_MACHINE", "HKLM"
-			$hRoot = $PFA_HKEY_LOCAL_MACHINE
+			$hRoot = $FAP_HKEY_LOCAL_MACHINE
 		Case "HKEY_USERS", "HKU"
-			$hRoot = $PFA_HKEY_USERS
+			$hRoot = $FAP_HKEY_USERS
 		Case "HKEY_CURRENT_USER", "HKCU"
-			$hRoot = $PFA_HKEY_CURRENT_USER
+			$hRoot = $FAP_HKEY_CURRENT_USER
 		Case "HKEY_CLASSES_ROOT", "HKCR"
-			$hRoot = $PFA_HKEY_CLASSES_ROOT
+			$hRoot = $FAP_HKEY_CLASSES_ROOT
 		Case "HKEY_CURRENT_CONFIG", "HKCC"
-			$hRoot = $PFA_HKEY_CURRENT_CONFIG
+			$hRoot = $FAP_HKEY_CURRENT_CONFIG
 		Case Else
 	Return SetError(1, 0, 0)
 	EndSwitch
@@ -178,7 +178,7 @@ Func _RegWrite($szKey, $szValue = "", $iType = -1, $bData = Default, $dwOptions 
 	Local $szSubkey = StringTrimLeft($szKey, StringInStr($szKey, "\"))
 
 	Local $ret = DllCall("advapi32.dll", "long", "RegCreateKeyExW", "ulong_ptr", $hRoot, "wstr", $szSubkey, "dword", 0, "ptr", 0, "dword", $dwOptions, _
-											"dword", $PFA_KEY_WRITE, "ptr", 0, "ulong_ptr*", 0, "ptr*", 0)
+											"dword", $FAP_KEY_WRITE, "ptr", 0, "ulong_ptr*", 0, "ptr*", 0)
 	If $ret[0] <> 0 Then Return SetError(2, $ret[0], 0)
 	Local $hKey = $ret[8], $lpData
 	If $iType >= 0 And $bData <> Default Then
@@ -207,22 +207,22 @@ Func _RegRead($szKey, $szValue)
     If $hRoot = "" Then $hRoot = $szKey ; passed a root key
     Switch $hRoot
         Case "HKEY_LOCAL_MACHINE", "HKLM"
-            $hRoot = $PFA_HKEY_LOCAL_MACHINE
+            $hRoot = $FAP_HKEY_LOCAL_MACHINE
         Case "HKEY_USERS", "HKU"
-            $hRoot = $PFA_HKEY_USERS
+            $hRoot = $FAP_HKEY_USERS
         Case "HKEY_CURRENT_USER", "HKCU"
-            $hRoot = $PFA_HKEY_CURRENT_USER
+            $hRoot = $FAP_HKEY_CURRENT_USER
         Case "HKEY_CLASSES_ROOT", "HKCR"
-            $hRoot = $PFA_HKEY_CLASSES_ROOT
+            $hRoot = $FAP_HKEY_CLASSES_ROOT
         Case "HKEY_CURRENT_CONFIG", "HKCC"
-            $hRoot = $PFA_HKEY_CURRENT_CONFIG
+            $hRoot = $FAP_HKEY_CURRENT_CONFIG
         Case Else
             Return SetError(1, 0, 0)
     EndSwitch
 
     Local $szSubkey = StringTrimLeft($szKey, StringInStr($szKey, "\"))
 
-    Local $ret = DllCall("advapi32.dll", "long", "RegOpenKeyExW", "ulong_ptr", $hRoot, "wstr", $szSubkey, "dword", 0, "dword", $PFA_KEY_QUERY_VALUE, "ulong_ptr*", 0)
+    Local $ret = DllCall("advapi32.dll", "long", "RegOpenKeyExW", "ulong_ptr", $hRoot, "wstr", $szSubkey, "dword", 0, "dword", $FAP_KEY_QUERY_VALUE, "ulong_ptr*", 0)
     If $ret[0] <> 0 Then Return SetError(2, $ret[0], 0)
     Local $hKey = $ret[5]
     $ret = DllCall("advapi32.dll", "long", "RegQueryValueExW", "ulong_ptr", $hKey, "wstr", $szValue, "ptr", 0, _
@@ -241,7 +241,7 @@ Func _RegRead($szKey, $szValue)
 			$iLen = ($iLen / 2) + 2
 		Case $REG_BINARY, $REG_NONE
 			$sType = "byte"
-		Case $PFA_REG_QWORD
+		Case $FAP_REG_QWORD
 			$sType = "int64"
 			$iLen = $iLen / 8 ; int64 = 8 bytes
 		Case Else
@@ -282,7 +282,7 @@ Func _TypeToString($iType)
 			$sType = "REG_FULL_RESOURCE_DESCRIPTOR"
 		Case $REG_RESOURCE_REQUIREMENTS_LIST
 			$sType = "REG_RESOURCE_REQUIREMENTS_LIST"
-		Case $PFA_REG_QWORD
+		Case $FAP_REG_QWORD
 			$sType = "REG_QWORD"
 		Case Else
 			$sType = ""

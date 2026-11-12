@@ -1,7 +1,7 @@
 #include-once
 ;=======================================================================================
 ; Embedded splash screen image (JPEG 416x249, "Development Test Release").
-; Used by _SplashShow() in PortableFileAssociator.au3.  Keep this file next to the script when compiling.
+; Used by _SplashShow() in FileAssociatorPortable.au3.  Keep this file next to the script when compiling.
 ;=======================================================================================
 
 Func _SplashJpgBase64()

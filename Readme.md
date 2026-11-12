@@ -83,7 +83,7 @@ The special targets are tick boxes under **Also add to**. Any combination can be
 | **Drives** | all drives (*Drive Command*) | `Software\Classes\Drive\shell` |
 | **Recycle Bin** | the Recycle Bin | `Software\Classes\CLSID\{645FF040-…}\shell` |
 | **Background** | empty space of a folder window and of the Desktop (like "Open Terminal here") | `Software\Classes\Directory\Background\shell` |
-| *extension* | a specific file extension, e.g. `txt` | `Software\Classes\PortableFileAssoc_<ext>\shell` and `Software\Classes\SystemFileAssociations\.<ext>\shell` |
+| *extension* | a specific file extension, e.g. `txt` | `Software\Classes\FAP_<ext>\shell` and `Software\Classes\SystemFileAssociations\.<ext>\shell` |
 
 > **Files** already covers every file, so the *Associated Types* box is disabled while it is ticked.
 
@@ -96,7 +96,7 @@ The special targets are tick boxes under **Also add to**. Any combination can be
 - Tick **Run as Admin** to start the command with administrator rights. Windows asks for confirmation (UAC) each time the entry is used.
 - Works for **Files**, **Folders**, **Drives**, **Background** and file extensions. Not used by **Recycle Bin**.
 - The setting applies to every target of the association. Use two associations if you need different behaviour.
-- Admin entries do not start your program directly. They start `FileAssociatorPortable.exe` (internal parameters `multi_open_admin` / `bg_open_admin`), which then starts the program elevated. PFA must stay at the same place while associations are active.
+- Admin entries do not start your program directly. They start `FileAssociatorPortable.exe` (internal parameters `multi_open_admin` / `bg_open_admin`), which then starts the program elevated. FAP must stay at the same place while associations are active.
 - Unchecked: the command runs normally.
 
 ### Single file type
@@ -131,7 +131,7 @@ The application path must be surrounded by `"` (double quotes) if it contains sp
 
 How `%%1` works:
 
-- Explorer starts one process per selected item, so PFA registers a small wrapper (`FileAssociatorPortable.exe multi_open ...`).
+- Explorer starts one process per selected item, so FAP registers a small wrapper (`FileAssociatorPortable.exe multi_open ...`).
 - The wrapper processes collect their files, and the first one starts your command. It waits about 1.5 seconds for the other files.
 - Files are passed in name order, like Explorer's default sort.
 - Very long selections are split into several runs (about 30000 characters per command line).
@@ -151,9 +151,9 @@ How `%V` works:
 - The command is started inside that folder.
 - A drive root such as `C:\` is passed safely (as `"C:\\"`), so terminals do not fail on the trailing backslash.
 - For **Background**, `%V`, `%1` and `%%1` all mean "this folder".
-- With **Run as Admin**, `%1` commands of Files, Folders and Drives are started the same way (through PFA), and `%V` / `%1` mean "the clicked-on item".
+- With **Run as Admin**, `%1` commands of Files, Folders and Drives are started the same way (through FAP), and `%V` / `%1` mean "the clicked-on item".
 
-> **Note:** PFA must stay at the same place while associations are active, because `%%1` and Background entries start `FileAssociatorPortable.exe`.
+> **Note:** FAP must stay at the same place while associations are active, because `%%1` and Background entries start `FileAssociatorPortable.exe`.
 
 The **Command** box is disabled when only **Folders** and / or **Drives** are ticked (no Files, Recycle Bin, Background or extensions). Then each ticked Folders / Drives box must have its own Folder Command / Drive Command. Otherwise the Command is needed.
 
@@ -205,7 +205,7 @@ Entries can be put in a group. A group has a **name** and an **icon**. All entri
 | **Group** drop-down (Add / Edit window) | `(none)` or one of the groups. |
 
 - The submenu is used for every target of the entry (files, folders, drives, background, recycle bin and file extensions). Entries of different associations can share a group.
-- For a file extension an entry in a group has **no default (double-click) action**: the double-click action needs a verb that is not in a submenu, so it is not offered under *Default PFA Association* in the File Types window.
+- For a file extension an entry in a group has **no default (double-click) action**: the double-click action needs a verb that is not in a submenu, so it is not offered under *Default FAP Association* in the File Types window.
 - The submenu is only shown for several selected items when at least one of its entries is not *Single file type*.
 - Groups are stored in the association INI as `[@group:<name>]` (`icon=<path,index>`), the group of an association as `group=<name>`, so profiles (Clone, Rename) keep their groups.
 
@@ -243,15 +243,16 @@ admin=1
 |---|---|
 | **Association** | Filter the list of file types by association name. Choose *All* to show every extension. |
 | **Global Icon** | One icon for **all** file types of the **selected** association (icon file, index and `...` button next to the box). Only available when a single association is selected, not for *All associations*. While it is on, no separate icon can be chosen for these file types (*Iconfile*, *Index* and the icon button are locked and the preview shows the global icon); switch it off and they are available again. Saved with **Save File Type** and used instead of the own icon when the associations are added. If a file type is in two associations, the Global Icon of an association that has it switched on is used. Stored in the association INI as `globalicon=<path,index>` and `globaliconon=1`. |
+| **Global Default FAP Association** | The **selected** association becomes the Default FAP Association (double-click action) of **all** its file types. Only available when a single association is selected (not for *All associations*) and not for an association that is in a group (an entry in a group has no default action). While it is on, no separate Default FAP Association can be chosen for these file types (the list of the file type is locked and shows the association); switch it off and they are available again. Saved with **Save File Type** and used instead of the own setting when the associations are added. If a file type is in two associations, the association that has it switched on is used. Stored in the association INI as `globaldefault=1`. |
 | **File Type** | The selected file type. |
-| **Default PFA Association** | Default PFA association for the selected extension (double-click action). |
+| **Default FAP Association** | Default FAP association for the selected extension (double-click action). |
 | **Hide extension** | Prevent the selected extension from being displayed in Explorer. |
 | **Copy Host Associations** | Copy the associations already present on the host computer for the selected extension. |
-| **Host Precedence** | If a host default association exists, it takes precedence over the PFA default. |
+| **Host Precedence** | If a host default association exists, it takes precedence over the FAP default. |
 | **Iconfile** | The file to extract the icon from (`.exe`, `.dll` or `.ico`). Used when a host association is not the default action. |
 | **Index** | Index of the embedded icon in a multi-icon resource. Use the arrow buttons or type the index. `.ico` files do not use an index; leave it at `0`. |
 | **Show in New menu in context menu** | Adds the file type to Explorer's right-click → New submenu. |
-| **New menu name** | Name shown under right-click → New. Default: `PFA_<extension> File`. |
+| **New menu name** | Name shown under right-click → New. Default: `FAP_<extension> File`. |
 | **Use template file** | New items are created from a template instead of an empty file (see below). |
 | **Save File Type** | Save file type changes. Must be done after each change. |
 | **Done** | Close the dialog. Prompts to apply changes if any were made while the associations are active. |
@@ -259,22 +260,22 @@ admin=1
 
 > **Note:** The index in the dialog will not exactly match the index used by Windows, however the correct Windows index is saved and written to the registry.
 
-**Template files:** PFA looks for the exact filename `Data\newitems\<EXTENSION IN CAPITALS>.<extension>` (e.g. `Data\newitems\TXT.txt`). A message appears if the file is missing. The host's own "New" entry for the extension is backed up and restored when the associations are removed.
+**Template files:** FAP looks for the exact filename `Data\newitems\<EXTENSION IN CAPITALS>.<extension>` (e.g. `Data\newitems\TXT.txt`). A message appears if the file is missing. The host's own "New" entry for the extension is backed up and restored when the associations are removed.
 
 ### Default association and icon behavior
 
 For new file extensions, the icon is initially set to the first association defined in the INI file that is associated with the extension.
 
-When selecting a host default, PFA first looks for an explicitly defined one. If none exists, it searches for a registry verb named `open` and uses that.
+When selecting a host default, FAP first looks for an explicitly defined one. If none exists, it searches for a registry verb named `open` and uses that.
 
-What PFA does when applying the default association and icon depends on several factors:
+What FAP does when applying the default association and icon depends on several factors:
 
-1. **A PFA default association is selected**
-   - **Host Precedence selected:** If a host default association exists it is set as the default and the host `DefaultIcon` is used. If there is no `DefaultIcon`, the PFA icon is used. If no host default is found, the PFA default association and icon are used. If no default is found and no PFA default is set, the OS decides and the PFA icon is used.
-   - **Host Precedence not selected:** The default action is set to the selected PFA association. The `DefaultIcon` is the user-defined icon from this dialog.
-2. **No PFA default association is selected**
-   - **Copy Host Associations selected:** If a host default association exists it is set as the default and the host `DefaultIcon` is used. If there is no `DefaultIcon`, the PFA icon is used. If no host default action is found, the OS decides, and the PFA-defined icon is used.
-   - **Copy Host Associations not selected:** No default action is defined and the OS decides. The PFA-defined icon is used.
+1. **A FAP default association is selected**
+   - **Host Precedence selected:** If a host default association exists it is set as the default and the host `DefaultIcon` is used. If there is no `DefaultIcon`, the FAP icon is used. If no host default is found, the FAP default association and icon are used. If no default is found and no FAP default is set, the OS decides and the FAP icon is used.
+   - **Host Precedence not selected:** The default action is set to the selected FAP association. The `DefaultIcon` is the user-defined icon from this dialog.
+2. **No FAP default association is selected**
+   - **Copy Host Associations selected:** If a host default association exists it is set as the default and the host `DefaultIcon` is used. If there is no `DefaultIcon`, the FAP icon is used. If no host default action is found, the OS decides, and the FAP-defined icon is used.
+   - **Copy Host Associations not selected:** No default action is defined and the OS decides. The FAP-defined icon is used.
 
 ---
 
@@ -319,11 +320,11 @@ Click the **gear icon** at the bottom right of the main window (or **Settings** 
 | Option | Description | Saved as |
 |---|---|---|
 | **Theme** | **System** follows the Windows app theme, **Light** is always light, **Dark** is always dark (window and title bar, text, inputs, lists, buttons, tray menu, icons). | `theme=system \| light \| dark` |
-| **Add associations on start** | The associations of the last active profile are added automatically when PFA is started without command line arguments. | `addassociationonstart=true \| false` |
-| **Remove associations on exit** | The file associations are removed again when PFA is closed (Exit, close button, Windows shutdown). On by default. | `removeonexit=true \| false` |
-| **Check for updates on startup** | Looks for a newer version in the background each time PFA starts (a message only appears when a newer version exists). The tray item **Check for updates** checks at any time (releases: `github.com/ShihabUddinX/FileAssociatorPortable`). | `checkupdateonstartup=true \| false` |
-| **Start minimized** | On: PFA starts minimized to the tray. Off: the main window is shown. | `startminimized=true \| false` |
-| **Disable splash screen** | No splash screen when PFA starts. | `DisableSplash=true` in `FileAssociatorPortable.ini` |
+| **Add associations on start** | The associations of the last active profile are added automatically when FAP is started without command line arguments. | `addassociationonstart=true \| false` |
+| **Remove associations on exit** | The file associations are removed again when FAP is closed (Exit, close button, Windows shutdown). On by default. | `removeonexit=true \| false` |
+| **Check for updates on startup** | Looks for a newer version in the background each time FAP starts (a message only appears when a newer version exists). The tray item **Check for updates** checks at any time (releases: `github.com/ShihabUddinX/FileAssociatorPortable`). | `checkupdateonstartup=true \| false` |
+| **Start minimized** | On: FAP starts minimized to the tray. Off: the main window is shown. | `startminimized=true \| false` |
+| **Disable splash screen** | No splash screen when FAP starts. | `DisableSplash=true` in `FileAssociatorPortable.ini` |
 | **Close button (X) minimizes to the tray** | The close button hides the window in the tray instead of exiting (use the tray item **Exit** to quit). Off by default. | `closetotray=true \| false` |
 
 Values: `true`, `1`, `yes`, `on` = on; `false`, `0` or blank = off.
@@ -352,8 +353,8 @@ Left-click the tray icon to show the main window. Right-click it to access these
 |---|---|
 | **Settings** | Opens the Settings window directly (the main window is shown first). |
 | **Refresh icons now** | Sends the `SHChangeNotify()` system message so Explorer refreshes the icons. |
-| **Check for updates** | Checks online if a newer version of PFA is available (needs an internet connection). |
-| **Exit** | Close PFA. |
+| **Check for updates** | Checks online if a newer version of FAP is available (needs an internet connection). |
+| **Exit** | Close FAP. |
 
 *Add associations on start* and *Remove associations on exit* are in the [Settings](#settings) window.
 
@@ -369,7 +370,7 @@ Remember, this is a safety measure. Under normal circumstances, adding and remov
 
 ## Modes of operation
 
-If run directly, the program starts the GUI where you can add or remove associations, edit associations, file types and SendTo entries, or create a restore point. Depending on the setting **Remove associations on exit**, the file associations are removed when PFA is closed.
+If run directly, the program starts the GUI where you can add or remove associations, edit associations, file types and SendTo entries, or create a restore point. Depending on the setting **Remove associations on exit**, the file associations are removed when FAP is closed.
 
 You can also run the program from the command line:
 
@@ -385,7 +386,7 @@ FileAssociatorPortable.exe <param1> <param2>
 | `add_gui` | Adds the file associations and starts the GUI minimized to the tray. |
 | `remove` | Removes the file associations, then exits. |
 
-`<param2>` is optional and must specify the profile to activate and use. It is ignored if `<param1>` is `remove`. If it is left out, the **last active profile** is used (the profile selected the last time PFA was used, stored as `active` in `Data\Settings\profile.ini`).
+`<param2>` is optional and must specify the profile to activate and use. It is ignored if `<param1>` is `remove`. If it is left out, the **last active profile** is used (the profile selected the last time FAP was used, stored as `active` in `Data\Settings\profile.ini`).
 
 ```
 FileAssociatorPortable.exe add_gui                  (last active profile)
@@ -396,11 +397,11 @@ Without command line arguments the [Settings](#settings) decide: **Add associati
 
 **Single instance:** only one copy of the program runs at a time. If `FileAssociatorPortable.exe` is started again while it is running (also when it is hidden in the tray or minimized), no second copy is started: the running program shows its main window and comes to the front (an open dialog is brought to the front). This also works when the running program was started as administrator.
 
-If PFA is already running, one command line parameter is available:
+If FAP is already running, one command line parameter is available:
 
 | Value | Action |
 |---|---|
-| `exit` | Close the running instance of PFA. File associations are removed based on the setting *Remove associations on exit*. |
+| `exit` | Close the running instance of FAP. File associations are removed based on the setting *Remove associations on exit*. |
 
 > **Internal parameters:** `multi_open` and `bg_open` are used by the context-menu entries created for `%%1` and Background commands. `multi_open_admin` and `bg_open_admin` are the same with **Run as Admin** (elevated start). They are not meant to be started by hand.
 
@@ -420,15 +421,15 @@ FileAssociatorPortable works on **Windows 7 to Windows 11** (Windows 7 is the mi
 
 ## Known issues / notes
 
-- The program was renamed from PortableFileAssociator to FileAssociatorPortable. The old `PortableFileAssociator.ini` (`DisableSplash` / `DisableUpdateCheck`) is copied to `FileAssociatorPortable.ini` automatically. `Data\settings` and the registry entries (`PortableFileAssoc_<ext>`) keep their names, so profiles and **Remove File Associations** keep working. Entries added by the old exe start the old exe: remove the associations with the old version first (or Remove, then Add once with the new exe).
-- Windows' own default app for an extension (Settings > Default apps, e.g. WinRAR for zip) is left alone unless a PFA default association takes over that extension. In that case the key is renamed, not copied, while the associations are active, so the default app is back after Remove. If Windows refuses the rename, the default app is left untouched (the PFA default may then not take effect).
+- The program was renamed from PortableFileAssociator to FileAssociatorPortable (short name **FAP**). The old `PortableFileAssociator.ini` (`DisableSplash` / `DisableUpdateCheck`) is copied to `FileAssociatorPortable.ini` automatically; `Data\settings` and the INI files keep their names, so profiles keep working. The registry entries now use the prefix `FAP_` (before: `PortableFileAssoc_` / `PFA_`). Entries added by the old version start the old exe and are not found by the new one: remove the associations with the old version first (or **Remove**, then **Add** once with the new exe).
+- Windows' own default app for an extension (Settings > Default apps, e.g. WinRAR for zip) is left alone unless a FAP default association takes over that extension. In that case the key is renamed, not copied, while the associations are active, so the default app is back after Remove. If Windows refuses the rename, the default app is left untouched (the FAP default may then not take effect).
 - Windows 11 shows these (classic) context-menu entries under **Show more options**.
 - **Single file type** relies on the Windows verb setting `MultiSelectModel=Single`. If an entry still appears with several items selected on your Windows version, leave the option unchecked.
 - Message boxes, input boxes and file dialogs are drawn by Windows and do not follow the Dark theme.
 - Background entries do not appear in virtual folders such as This PC or Control Panel.
 - File extension entries are also written to `SystemFileAssociations\.<ext>\shell`, so they show up even when Windows has a default app chosen for the extension (typical for media files such as mp3 and mp4). Use **Remove File Associations** and **Add File Associations** once after updating.
 - **Run as Admin** shows the Windows confirmation (UAC) every time the entry is used. It is not available for the Recycle Bin.
-- After updating PFA, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
+- After updating FAP, use **Remove File Associations** and then **Add File Associations** once, so the new commands (`%%1`, Run as Admin, Folder Command) are written to the registry.
 
 ---
 
