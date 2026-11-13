@@ -70,7 +70,7 @@ Global Const $UPDATE_API_URL = "https://api.github.com/repos/ShihabUddinX/FileAs
 Global $oUpdate = 0, $hUpdateTimer = 0, $fUpdateManual = False, $iUpdateComErr = 0, $iUpdateStage = 0, $trayupdate
 
 #Region Commandline
-Global $wndMSG, $wndMSG_msg = -1, $hMutex = 0
+Global $wndMSG, $wndMSG_msg = -1, $hMutex = 0, $hOldWin = 0, $aMutexH[1] = [0], $fOwnShared = False
 
 ; Windows 7 (build 7600) is the oldest supported Windows
 If _OSBuildNumber() < 7600 Then
@@ -92,8 +92,14 @@ EndIf
 
 $wndMSG = _WinAPI_RegisterWindowMessage("FAP_CustomWindowMessage")
 
-; single instance: when the program is already running no second one is started, the running one shows its main window
-If _AlreadyRunning() Then
+; single instance: only ONE copy of the program runs at a time, also not together with an older version
+; (PortableFileAssociator / earlier FileAssociatorPortable).  _AlreadyRunning: 0 = no, 1 = this version, 2 = an older version
+Local $iRunning = _AlreadyRunning()
+If $iRunning = 2 Then
+	_OldVersionRunning() ; asks to close the older version (or exits); returns when it was closed
+	$iRunning = _AlreadyRunning()
+EndIf
+If $iRunning <> 0 Then
 	Local $iForward = 1 ; 1 = show the main window of the running program
 	If $CmdLine[0] > 0 Then
 		Switch $CmdLine[1]
@@ -128,12 +134,13 @@ Global $rdGUI, $rdEdit, $rdClose, $fReadmeLoaded = False ; embedded Readme windo
 Global $stCancel
 Global $nSettings, $stGUI, $stTheme, $stAddStart, $stRemoveExit, $stCheckUpd, $stStartMin, $stNoSplash, $stCloseTray, $stDone
 Global $fSetAddStart = False, $fSetRemoveExit = True, $fSetCheckUpd = True, $fSetStartMin = False, $fSetCloseTray = False ; Settings (settings.ini)
-Global $aMutedLbl[5][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
+Global $aMutedLbl[6][3] ; muted labels: [n][0] = ctrl id, [n][1] = light colour, [n][2] = dark colour
 Global Const $aProfIconNames[5] = ["New_Profile", "Clone_Profile", "Rename_Profile", "Remove_Profile", "Settings"]
 Global $refreshnow, $trayexit, $traysettings
 Global $hAssocHdr = 0, $hsHdr = 0 ; list view headers (painted by hand in the dark theme)
 Global $globalDefChk ; File Types: Global Default FAP Association of the selected association
 Global $globalChk, $globalIcon, $globalIdx, $globalBrowse ; File Types: Global Icon of the selected association
+Global $fThemeSecond = False
 Global $fDarkApi = False, $fDwmDark = False ; Windows 10 dark mode APIs (set in _SettingsLoad)
 Global $oGrp = 0, $hGroupHdr = 0 ; group submenus written in this run / group list header
 Global $gmGUI, $hGroupLV, $gmAdd, $gmDel, $gmEdit, $gmClose, $geGUI, $geName, $geIcon, $geIconBrowse, $geIconIdx, $gePreview, $geSave, $geCancel, $sGroupEdit = "", $hGroupBack
@@ -247,19 +254,102 @@ Func _OperatingMode()
 	EndIf
 EndFunc
 
-Func _AlreadyRunning()
-	; named mutex (the handle stays open until the program ends).  ERROR_ALREADY_EXISTS (183) = running;
-	; ERROR_ACCESS_DENIED (5) = running with other rights (ie as administrator).
-	Local $aH = DllCall("kernel32.dll", "handle", "CreateMutexW", "ptr", 0, "bool", False, "wstr", "Local\" & @ScriptName & "_SingleInstance")
-	If Not @error Then
-		Local $aErr = DllCall("kernel32.dll", "dword", "GetLastError")
-		If Not @error Then
-			$hMutex = $aH[0]
-			If $aErr[0] = 183 Or $aErr[0] = 5 Then Return True
-		EndIf
+Func _MutexExists($sName)
+	; does a named mutex exist (another program has it open)?
+	Local $a = DllCall("kernel32.dll", "handle", "OpenMutexW", "dword", 0x100000, "bool", False, "wstr", $sName) ; SYNCHRONIZE
+	If @error Then Return False
+	If $a[0] Then
+		DllCall("kernel32.dll", "bool", "CloseHandle", "handle", $a[0])
+		Return True
 	EndIf
-	; second check: the main window of a running program
-	Return (WinExists("[TITLE:FileAssociatorPortable; CLASS:AutoIt v3 GUI]") <> 0)
+	Local $aErr = DllCall("kernel32.dll", "dword", "GetLastError")
+	Return (Not @error And $aErr[0] = 5) ; access denied = it exists (owned by a program with other rights)
+EndFunc
+
+Func _MutexOwn($sName)
+	; creates a named mutex and keeps it until the program ends; returns False when it already existed
+	Local $a = DllCall("kernel32.dll", "handle", "CreateMutexW", "ptr", 0, "bool", False, "wstr", $sName)
+	If @error Then Return True
+	Local $aErr = DllCall("kernel32.dll", "dword", "GetLastError")
+	If Not @error Then
+		If $aErr[0] = 183 Or $aErr[0] = 5 Then Return False ; ERROR_ALREADY_EXISTS / ERROR_ACCESS_DENIED
+	EndIf
+	$aMutexH[0] += 1
+	ReDim $aMutexH[$aMutexH[0] + 1]
+	$aMutexH[$aMutexH[0]] = $a[0]
+	Return True
+EndFunc
+
+Func _LegacyMutexNames()
+	; mutex names of the older versions: the name of their exe (PortableFileAssociator.exe, FileAssociatorPortable.exe)
+	Local $s = "PortableFileAssociator.exe|FileAssociatorPortable.exe"
+	If Not StringInStr("|" & $s & "|", "|" & @ScriptName & "|") Then $s &= "|" & @ScriptName
+	Return StringSplit($s, "|", 2)
+EndFunc
+
+Func _FindOldVersionWindow()
+	; main window of an older version: it was called PortableFileAssociator, later FileAssociatorPortable (like this version)
+	Local $h = WinGetHandle("[TITLE:PortableFileAssociator; CLASS:AutoIt v3 GUI]")
+	If Not @error And $h Then Return $h
+	$h = WinGetHandle("[TITLE:FileAssociatorPortable; CLASS:AutoIt v3 GUI]")
+	If Not @error And $h Then Return $h
+	Return 0
+EndFunc
+
+Func _AlreadyRunning()
+	; 0 = nothing runs (this program now owns the mutexes), 1 = this version runs, 2 = an older version runs
+	Local $aNames, $i
+	; 1. this version: a mutex that does not depend on the name of the exe (the handle stays open until the program ends)
+	If Not $fOwnShared Then ; (the second call, after an older version was closed, already owns it)
+		If Not _MutexOwn("Local\FileAssociatorPortable_SingleInstance") Then Return 1
+		$fOwnShared = True
+	EndIf
+	; 2. an older version (it cannot see the mutex above, and does not know the message of this version)
+	$aNames = _LegacyMutexNames()
+	$hOldWin = _FindOldVersionWindow()
+	If $hOldWin Then Return 2
+	For $i = 0 To UBound($aNames) - 1
+		If _MutexExists($aNames[$i]) Then Return 2
+	Next
+	; 3. nothing runs: take the mutexes of the older versions as well, so an older version that is started later stops, too
+	For $i = 0 To UBound($aNames) - 1
+		_MutexOwn($aNames[$i])
+	Next
+	Return 0
+EndFunc
+
+Func _CloseOldVersion()
+	; older versions close when they get their window message with wParam 0 ("PFA_CustomWindowMessage").  True = gone.
+	Local $iMsg = _WinAPI_RegisterWindowMessage("PFA_CustomWindowMessage"), $aNames = _LegacyMutexNames(), $i, $j, $fRunning
+	If $hOldWin Then DllCall("user32.dll", "lresult", "SendMessageTimeoutW", "hwnd", $hOldWin, "uint", $iMsg, "wparam", 0, "lparam", 0, "uint", 2, "uint", 15000, "dword_ptr*", 0) ; SMTO_ABORTIFHUNG
+	For $i = 1 To 100 ; up to 10 seconds
+		$fRunning = False
+		If _FindOldVersionWindow() Then $fRunning = True
+		For $j = 0 To UBound($aNames) - 1
+			If _MutexExists($aNames[$j]) Then $fRunning = True
+		Next
+		If Not $fRunning Then Return True
+		Sleep(100)
+	Next
+	Return False
+EndFunc
+
+Func _OldVersionRunning()
+	; an older version of the program runs: tell the user, close it when wanted, otherwise leave
+	Local $sArg = ""
+	If $CmdLine[0] > 0 Then $sArg = $CmdLine[1]
+	If $sArg = "add" Or $sArg = "remove" Then Exit ; actions of the command line are not done while another version runs
+	If $sArg = "exit" Then
+		_CloseOldVersion()
+		Exit
+	EndIf
+	If 6 <> MsgBox(4 + 32 + 256, "FileAssociatorPortable", "An older version of FileAssociatorPortable (PortableFileAssociator) is already running." & @CRLF & @CRLF & _
+			"Two versions cannot run at the same time." & @CRLF & "Close the older version and start this one?") Then Exit
+	If Not _CloseOldVersion() Then
+		MsgBox(48, "FileAssociatorPortable", "The older version could not be closed (it may run as administrator)." & @CRLF & @CRLF & _
+				"Please close it yourself and start this program again.")
+		Exit
+	EndIf
 EndFunc
 
 Func _MY_CUSTOM_MSG($hWnd, $Msg, $wParam, $lParam)
@@ -571,6 +661,7 @@ Func _InitAllGUIs($guimode = "")
 	If $guimode = "" Or $guimode = "add_gui" Then $hSplash = _SplashShow($hSplashTimer) ; splash screen (also while "add on start" adds the associations)
 	If $fSetCheckUpd Then _UpdateCheckStart(False) ; update check on start (Settings), in the background
 	_ThemeLoad() ; read theme setting (system / light / dark)
+	_ThemeAppMode() ; (before the windows are created)
 	TraySetClick(8) ; show menu only on right-click
 	TraySetState(1) ; show tray icon
 
@@ -928,6 +1019,10 @@ Func _InitAllGUIs($guimode = "")
 	GUICtrlCreateLabel("Theme:", 20, 22, 60, 20)
 	$stTheme = GUICtrlCreateCombo("", 84, 18, 140, 24, BitOR($CBS_DROPDOWNLIST, $CBS_AUTOHSCROLL, $WS_VSCROLL))
 	GUICtrlSetTip(-1, "System follows the Windows app theme.")
+	$aMutedLbl[5][0] = GUICtrlCreateLabel("Dark theme needs Windows 10 (1903) or newer.", 232, 14, 120, 32)
+	$aMutedLbl[5][1] = 0x666666
+	GUICtrlSetFont(-1, 8, 400, 2)
+	GUICtrlSetColor(-1, 0x666666)
 	$stAddStart = GUICtrlCreateCheckbox("Add associations on start", 20, 62, 320, 22)
 	GUICtrlSetTip(-1, "Add the associations of the active profile automatically when FAP starts.")
 	$stRemoveExit = GUICtrlCreateCheckbox("Remove associations on exit", 20, 90, 320, 22)
@@ -3971,6 +4066,7 @@ Func _ThemeLoad($sMode = "")
 		$v = RegRead("HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme")
 		If Not @error And $v = 0 Then $fDark = True
 	EndIf
+	If Not $fDarkApi Then $fDark = False ; Windows 7 / 8 (and Windows 10 before 1903): only the Light theme
 	If $fDark Then
 		$iBgCol = 0x202020
 		$iCtrlCol = 0x2B2B2B
@@ -4055,6 +4151,10 @@ Func _ThemeListView($hLV)
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1001, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETBKCOLOR
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1026, "wparam", 0, "lparam", _BGR($iCtrlCol)) ; LVM_SETTEXTBKCOLOR
 	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $hLV, "uint", 0x1024, "wparam", 0, "lparam", _BGR($iTextCol)) ; LVM_SETTEXTCOLOR
+	If $fDarkApi Then
+		_ThemeNotify($hLV)
+		If $hHdr Then _ThemeNotify($hHdr)
+	EndIf
 	If $hHdr Then DllCall("user32.dll", "bool", "InvalidateRect", "hwnd", $hHdr, "ptr", 0, "bool", True)
 EndFunc
 
@@ -4104,6 +4204,35 @@ Func _ThemeHeaderDraw($hHdr, $lParam)
 	Return 4 ; CDRF_SKIPDEFAULT
 EndFunc
 
+Func _ThemeAppMode()
+	; dark / light popup and tray menus and the base of the dark controls (uxtheme ordinals: 135 = SetPreferredAppMode,
+	; 104 = RefreshImmersiveColorPolicyState, 136 = FlushMenuThemes).  These ordinals only exist as such in Windows 10
+	; 1903 (build 18362) and newer.  On older Windows the same ordinals are other functions, calling them crashes the
+	; program (APPCRASH), so they are skipped there ($fDarkApi).
+	If Not $fDarkApi Then Return
+	If $fDark Then
+		DllCall("uxtheme.dll", "int", 135, "int", 2) ; ForceDark
+	Else
+		DllCall("uxtheme.dll", "int", 135, "int", 3) ; ForceLight
+	EndIf
+	DllCall("uxtheme.dll", "none", 104)
+	DllCall("uxtheme.dll", "none", 136)
+EndFunc
+
+Func _ThemeNotify($h)
+	; Windows 11 keeps the theme data of a control until it gets WM_THEMECHANGED: without it buttons, input boxes etc.
+	; keep the old (light / dark) look until the program is restarted
+	DllCall("user32.dll", "lresult", "SendMessageW", "hwnd", $h, "uint", 0x031A, "wparam", 0, "lparam", 0) ; WM_THEMECHANGED
+EndFunc
+
+Func _ThemeSecondPass()
+	; some controls only take the new look at the second try (Windows 11)
+	AdlibUnRegister("_ThemeSecondPass")
+	$fThemeSecond = True
+	_ThemeApply()
+	$fThemeSecond = False
+EndFunc
+
 Func _ThemeApply($hOnly = 0)
 	; $hOnly = 0: all main GUIs (+ tray/menus, SendTo list, icons); otherwise only the given GUI (e.g. a dialog)
 	Local $aTargets[9] = [$nGUI, $aGUI, $tGUI, $sGUI, $stGUI, $rdGUI, $eGUI, $gmGUI, $geGUI], $iCount = 9
@@ -4123,27 +4252,18 @@ Func _ThemeApply($hOnly = 0)
 		$iVal = 1
 	EndIf
 
-	If Not $hOnly Then
-		; dark popup / tray menus (uxtheme ordinals: 135 = SetPreferredAppMode, 136 = FlushMenuThemes).
-		; These ordinals only exist as such in Windows 10 1903 (build 18362) and newer.  On older Windows (Windows 7 ...) the same
-		; ordinals are other functions, calling them crashes the program (APPCRASH), so they are skipped there.
-		If $fDarkApi Then
-			If $fDark Then
-				DllCall("uxtheme.dll", "int", 135, "int", 2)
-			Else
-				DllCall("uxtheme.dll", "int", 135, "int", 0)
-			EndIf
-			DllCall("uxtheme.dll", "none", 136)
-		EndIf
-	EndIf
+	If Not $hOnly Then _ThemeAppMode()
 
 	; window background + title bar
 	For $j = 0 To $iCount - 1
 		GUISetBkColor($iBgCol, $aTargets[$j])
+		If $fDarkApi Then DllCall("uxtheme.dll", "bool", 133, "hwnd", $aTargets[$j], "bool", $fDark) ; AllowDarkModeForWindow
 		If $fDwmDark Then ; dark title bar attributes exist since Windows 10 1809
 			DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 20, "int*", $iVal, "dword", 4)
 			DllCall("dwmapi.dll", "long", "DwmSetWindowAttribute", "hwnd", $aTargets[$j], "dword", 19, "int*", $iVal, "dword", 4)
+			DllCall("user32.dll", "bool", "SetWindowPos", "hwnd", $aTargets[$j], "hwnd", 0, "int", 0, "int", 0, "int", 0, "int", 0, "uint", 0x37) ; SWP_FRAMECHANGED: the title bar takes the new look
 		EndIf
+		If $fDarkApi Then _ThemeNotify($aTargets[$j])
 	Next
 
 	; controls
@@ -4161,6 +4281,7 @@ Func _ThemeApply($hOnly = 0)
 		$aRet = DllCall("user32.dll", "long", "GetWindowLongW", "hwnd", $h, "int", -16) ; GWL_STYLE
 		If @error Then ContinueLoop
 		$iStyle = $aRet[0]
+		If $fDarkApi Then DllCall("uxtheme.dll", "bool", 133, "hwnd", $h, "bool", $fDark) ; AllowDarkModeForWindow (before its theme is set)
 		Switch $sClass
 			Case "Button"
 				$iType = BitAND($iStyle, 0xF)
@@ -4193,6 +4314,7 @@ Func _ThemeApply($hOnly = 0)
 					If Not $bMuted Then GUICtrlSetColor($id, $iTextCol)
 				EndIf
 		EndSwitch
+		If $fDarkApi Then _ThemeNotify($h) ; the control reloads its theme
 	Next
 
 	If Not $hOnly Then
@@ -4216,6 +4338,7 @@ Func _ThemeApply($hOnly = 0)
 	For $j = 0 To $iCount - 1
 		DllCall("user32.dll", "bool", "RedrawWindow", "hwnd", $aTargets[$j], "ptr", 0, "ptr", 0, "uint", 0x585)
 	Next
+	If Not $hOnly And Not $fThemeSecond And $fDarkApi And _OSBuildAtLeast(22000) Then AdlibRegister("_ThemeSecondPass", 300) ; Windows 11: once more shortly after
 EndFunc
 #EndRegion Theme (light / dark)
 
@@ -4249,7 +4372,7 @@ EndFunc
 Func _SettingsLoad()
 	; The dark mode APIs of Windows 10 / 11 are called by ordinal number (uxtheme.dll 133, 135, 136).  On older Windows these
 	; ordinals are other functions and calling them crashes the program (APPCRASH / BEX), so they are only used from
-	; Windows 10 1903 (build 18362).  settings.ini [settings] darkmodeapi=false switches them off on every Windows.
+	; Windows 10 1903 (build 18362).  settings.ini [settings] darkmodeapi=false switches them off on every Windows (Light theme only).
 	$fDarkApi = (_OSBuildAtLeast(18362) And _SettingGet("darkmodeapi", True))
 	$fDwmDark = (_OSBuildAtLeast(17763) And _SettingGet("darkmodeapi", True)) ; dark title bar
 	$fSetAddStart = _SettingGet("addassociationonstart", False)
@@ -4307,6 +4430,13 @@ Func _SettingsSync()
 	; show the current settings in the Settings window
 	GUICtrlSetData($stTheme, "") ; clear first: GUICtrlSetData adds to the list of a combo
 	GUICtrlSetData($stTheme, "System|Light|Dark", StringUpper(StringLeft(_ThemeModeName(), 1)) & StringTrimLeft(_ThemeModeName(), 1))
+	If $fDarkApi Then
+		GUICtrlSetState($stTheme, $GUI_ENABLE)
+		GUICtrlSetState($aMutedLbl[5][0], $GUI_HIDE)
+	Else ; Windows 7 / 8: no dark theme (the saved choice is kept for a Windows 10 / 11 computer)
+		GUICtrlSetState($stTheme, $GUI_DISABLE)
+		GUICtrlSetState($aMutedLbl[5][0], $GUI_SHOW)
+	EndIf
 	_AssocSetChk($stAddStart, $fSetAddStart)
 	_AssocSetChk($stRemoveExit, $fSetRemoveExit)
 	_AssocSetChk($stCheckUpd, $fSetCheckUpd)
@@ -4326,7 +4456,7 @@ Func _SettingsSave()
 	_SettingSet("checkupdateonstartup", $fSetCheckUpd)
 	_SettingSet("startminimized", $fSetStartMin)
 	_SettingSet("closetotray", $fSetCloseTray)
-	IniWrite($settingsini, "settings", "theme", _ThemeModeName()) ; the theme shown at the moment (previewed)
+	If $fDarkApi Then IniWrite($settingsini, "settings", "theme", _ThemeModeName()) ; the theme shown at the moment (previewed); not changed on Windows 7 / 8
 	$onclose = Number($fSetRemoveExit)
 	If _IsChk($stNoSplash) <> _ExeIniFlag("DisableSplash") Then _ExeIniSet("DisableSplash", _IsChk($stNoSplash))
 EndFunc
@@ -4407,7 +4537,7 @@ EndFunc
 #EndRegion Settings (Data\settings\settings.ini)
 
 #Region Profile action icons
-; Icons converted from the SVG files: New_Profile.svg, Clone_Profile.svg, Rename_Profile.svg, Remove_Profile.svg, Settings.svg
+; Icons converted from the SVG files: New_Profile.svg, Clone_Profile.svg, Rename_Profile.svg, Remove_Profile.svg, Settings.svg (the files are recolored: black / white)
 ; Embedded as 32x32 PNG (base64), no extra files needed. Variants per icon:
 ;   <Name>               black   (light theme)        <Name>_Disabled        grey (light theme, disabled)
 ;   <Name>_Dark          white   (dark theme)         <Name>_Dark_Disabled   grey (dark theme, disabled)
@@ -4658,280 +4788,228 @@ Func _ProfileIconData($sName)
 	Local $s = ""
 	Switch $sName
 		Case "New_Profile"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABnklEQVR42u2VwStEURTGfzNMY4NS"
-			$s &= "LJSMBSuhLLCws7Ing1KyGGoWZsNO/gF/AQtLUxNWlkgyNVmxV0iSDSILM8/mm7o9b2bem5lH6n11"
-			$s &= "O7d77jn33HPudy4ECBCgMhqAJHAFfAF5zZNA+DcOzwBWiZHxO4gVHfQGLAItQCuwpDULSFTwkda+"
-			$s &= "qWoCuJTxsoMuIV3OzwA+ZNzhoGuX7r2WACrVryAZctBFJPO11Lixgv4aGAHmgC2bLm7ssd/YxJjk"
-			$s &= "qi0LWQefP7Cg9H0Ca0AM6AHWtWYB8zYby+VIl0qtiRCwLQY4YUeMMGGvdQoY1W2zxvo9cOG2VLPA"
-			$s &= "CfCkcWyUAD9ZUA/UxALfUY4FncAkMA70A91As27zCtyKAWfAEfBQwk+x7nduAmoS5U7VA9y+6ILe"
-			$s &= "SByIVpuNCUVZdPooBswAg0Cbmk9E8yEFuws8G3Y3yponxIzP5RyYNjqdG0TVD3Ly8QJ0eQlgU4YH"
-			$s &= "LnpDOYSBQ/nacGsA0Cu5L+NqUQD2NO/zwoKiHKhDwxi2fVaeaJj6qz6Q9cF3lgAB/gO+AaHmeT4m"
-			$s &= "/oNbAAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABdUlEQVR42u3WMUscURDA8Z93ghaa"
+			$s &= "DyCR2CSgV4saSJfOOsJFISSkEMFGzOewUhDMFwhYp4uKJApiZXohioXFJSZt7s7mLRyHt/vW8xRh"
+			$s &= "Bwb27Xsz83/z5s0uhRRSSLaUsYwT/Ec9PC+jdB/Bt9HsoNu9hlhKCZ7oYoaPVdRQuQ3AcQTAUYaP"
+			$s &= "L2Hdm5sms9I3HgE50U2KswAaET7q3QD0ZcwfYipjzQFetow/YbJlPIOnYd15y8bWsZ8F+C6iBhba"
+			$s &= "bGoRNk1sxmSgD1v40GH+Mz62vau01cUKprEWspAc2w5+xx7VW+ziMugOqpG2yS2Ye6hOmgpQugeA"
+			$s &= "Rtpt6U8xHMEsXoVzfYbhsJu/+IWfoZK/4qKDnw38wbcY2kHMYy+QNyO1EWqkioHbpuo1znIE7aSn"
+			$s &= "IWu5ZAz/7iB4olcYzdOK32PoDgvvSUrvuBHgeQ+q/0UegF5cx3IegB89APgesyjpA+stX65yl4Hr"
+			$s &= "YUMbxe90IY9CrgFsvJLxojipagAAAABJRU5ErkJggg=="
 		Case "New_Profile_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACq0lEQVR42u1VMWgUURB9b3eDBgwK"
-			$s &= "doeojUI02CjEFLESCwXByEVUELxjd8EiYgrrtZFUBwb0vF3PAwmRrCRBEGysDEh6o7Zi5IJVjhhI"
-			$s &= "5G7/2PyE88xl94xRwXvV3z9//rydeTMfaKON/x2MOxCGoVmpVG6IiEOyGwBF5D1Jv1wu3/c8T20b"
-			$s &= "gTAMzcXFxZDkwEZ2EZlaWFhIb4WEsZmxUqm4OvgygOzq6upuEdkjIjaAZZIDqVTK2eyOIAhC3/el"
-			$s &= "UCikN7JbMQSz+k9vu677uG7/ke/7FoA8ySyAh9uSAQDdAKCUmvyJuWVNanJHtqKBOAJKB+MG9e/Q"
-			$s &= "y2grBOJKMAegV0SuAsjVG2q12mWSIDnXWPMGon0AYBjGrSAI0nX7s47j5DYlICJ5kr0A7vq+3xFF"
-			$s &= "0YRlWVRKXSLp6WMPGnzSTe7q+6H9yPgMOI7zJAiCUwAyAEZM0xwRkXVnAEXbtscaAg02BBoGcBJA"
-			$s &= "TkRm12ur1OdEgwgACoXCFZIOgDXBvSPp27b9NM43CIJQRNIiMui67rNWNQAAcF13HMD4doxiA38Z"
-			$s &= "TTNQLBZTtVrtLMl+AD0kD4hIFwABsATgk+6AGcMwXmaz2XIT8c3qbpmPfQtKpdLOarV6kaQjIv1J"
-			$s &= "NaJJvSZZWFlZmRoaGvrW8mPk+/5pACUA+/TWFwAvALxSSn2wLGs+iqKvAGCaZpdSaj+AowDOkDwn"
-			$s &= "Inu130eS12zbnklMIJ/PHzRN8y2AXQDeALgnItOu61aTXDI6Orqjs7MzDeCmiJwAsGRZVk8mk5lP"
-			$s &= "pAHTNK/r4M9t275AUloRkk75mOd546lUahrA+SiKMgDuJO2CQ1ow060Gr4fneUpEJvTn4cRdQNLS"
-			$s &= "E+5Ys3c7sajI43rZ8SttOFw3Zv/cHFjr1d+J+rnfRhv/NL4DOg4dyBbi9bcAAAAASUVORK5CYII="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACIUlEQVR42u2WsWsUURDGf9/uFRYq"
+			$s &= "ufYQtFGI2mpIcZ2dXUIULATv2HdgERAU1Cr/gVVy3i7ngUgCW6S1s/Aw2JtYi8KlvDVNkGR3bBII"
+			$s &= "IXe7x+UK8T7YYmfmvfn4Zua9B1NM8b9DeQFxHPtJkjw1MydpFpCZfZcU9nq91ZWVlWxiBOI49vv9"
+			$s &= "fixp4Sy/mW3u7u4ujUOiNMyZJEljUHIASQuVSsUBbwfFhGH4HHgNVJ1zO6f9Xg7Beq6EUj3Hfxco"
+			$s &= "m9nNs/x5BGbzCAzauCjyCBSpbToOgVKOfxuYy5F4++R/FEUvgDsnFJoH8DzvWRRFSwBZlmWe560G"
+			$s &= "QdAt5cjblDSXQ3Lt1JpXQPmMveZPkCbLst9Ad2gJnHPvgXdDQtpBEHw4Zaua2YPjD/h6ZH9zbJO0"
+			$s &= "mKbpy0IHEUCr1XokyQHHDbcjKQyCYCNvbRRFsZktAQ+dc/GoPQBAo9FYB9YncRR7TBhZlmXDpmWg"
+			$s &= "Au12u5Km6X2gCtySdNXMLgEG7AE/jyag63nex3q93hvQyGuSksPDw0+5d0Gn07lwcHCwKMmZWbVo"
+			$s &= "jxyR+iyptb+/v7m8vPxn5MsoDMN7QAe4MqbqPyQ9DoKgW5hAs9m85vv+N+DiOZV+r1Qq3a7Var8K"
+			$s &= "NaHv+0/OMTnA5TRNa6NMwfUJDMCNwgTMzJvA+PmjKLB17m896Uvh27BcLq/2+30kzUvyx0lsZimw"
+			$s &= "NTMzszZ9ck/xT+AvMarRAaOfsUkAAAAASUVORK5CYII="
 		Case "New_Profile_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABwUlEQVR42u2VP0scURTFz1UX05jA"
-			$s &= "loGgKRQSJAoWSYrtrOyVbFYIiIURLLKN6YJfwE+ghaULS2JlqSLiwJIq6QMqIsHG2FjE/dnchXHY"
-			$s &= "zezMugZhDjzuzP33Dve++56UIUOGGAC9wBLwA/gLXPv3EtBzH5tXaY1qV0kAi77RJTAHPAaeAPOu"
-			$s &= "A1iIyVFxv+k0BL578McmtgW31TohEFe+Fy6rTWwN3ctOqhxHoO7SmthyLq87IdAXY/8p6bWkkqTV"
-			$s &= "iK0Y8rlV8ojfW5efIm0IzGw17gx88P5dAcvAEPAc+Ow6gNlITLuotCptOJlJWpM018Jl3czmIzHR"
-			$s &= "w1aW9MYrGIT0J2Z22O40vAd2gd++doBim7Hpx/CO7pKOxrDr6PsH86eSpiQVJI1KGpQ0IAlJfyQd"
-			$s &= "+QTsS9o2s9MWqRp9P26nXI+AErAH1BOc6LqfkSLQn7ZXk8BxKOkZsAa8A8aAPJDzlQfGnewGcB6K"
-			$s &= "+wUUkm4+FHpcDoAZIJcgvh+YBWqe4wJ4loTAigd+89lPW8UeYMtzfUnyFgy7/GpmpCVgZnVJm/47"
-			$s &= "kmQKGvLVHVwYE5HHKtEYlv/XPRB0IXegDBkeAm4A0d4OcMsYRqoAAAAASUVORK5CYII="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABfUlEQVR42u2WMUscQRTHf3MnxEKF"
+			$s &= "tEKITYR4tSYWdulSJ3AakKiFCFco+jlSnRDQLxCwThcTjiQfQHvBQAoLk5jWu5/NFstxdzPreYbA"
+			$s &= "/mHZZWfee7+ZeW9moFSpUhGpVbWhnqjXajv7bqiV+wh+ZH8djRRC3TKuzYiPXfVSrfVqj9GvJ3DG"
+			$s &= "+iwAD4G52wA8TQCYG2aWYwCdBB/tYQDGIu2nwLOEPvk13wPmc78Ws/e2+io3sGYIoRVLwtWEJHzT"
+			$s &= "ZXNpmt4DhAhAAA6AtT5dDkMIG102ta682AGeA++A77llOw4h/Eotx2X1s3qRPcdqPdH2Qzbi1/9q"
+			$s &= "Jx0IULkHhs6gahkbQD4NvASWgBrwGJgEBK6A86wCWsDHEMLPPq72gd/Ap5TpGldX1C9qx3R1shyp"
+			$s &= "qw9uu1Yv1B8OrzN1qWjwGfWvd6c/6qMiW/FbYOIOE29qwN7RE+DJCLJ/tgjAKMqxWgTg2wgAvhY5"
+			$s &= "DZu5k6s6ZOB2NqD98kZd6r/QDQG9CSRq1m19AAAAAElFTkSuQmCC"
 		Case "New_Profile_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACoElEQVR42u2VO2gUURSGv3NnQoS4"
-			$s &= "aGKVRdRGwQc2CmqhlVgoCEYmooJEgxEkMxstrMdGrBZmJhpdfIBIxEgSBMHGSkG2N2orRgSLpFAD"
-			$s &= "K9mdY3OFZUmyE0MUMX9zH+eec37O68IKVvC/Q5o98DzP6ezsvAj0AVutzjug1NHRcSMMw3TZCHie"
-			$s &= "5+Tz+RFV7ZpTWWSsvb3dWwoJs5Awn89fsM6/q2qvqq6pVCprgfP2rmt6erpvIRtBEIwEQaCFQsGb"
-			$s &= "S+4upJymaa+IoKpXkiS5Vye6EwSBCwyJSC9wa1kiICJbAWZnZ0cbZao6atdtS6kB00SeArS2tsoc"
-			$s &= "BFrstrYUAm4T+QSwR1VPA8V6geM4J1UVVZ1ozHmDjX02nZeCIKivg3Icx8VmBIaAPcA13/dbHMd5"
-			$s &= "XK1WxXGcE6oaAhhjbjY2zzzp3LfoCMRx/CAIggPAORG5nqbpdWMMqvrryd0oih42OOpuSNVlYC9Q"
-			$s &= "FJFy3btPmQYRQKFQOKWqfcA2a/QtUEqS5FEzXZsST0S6oyh6stgaACCKomFgeDlGseEvY94I9Pf3"
-			$s &= "540xh1V1P7BDRDYCOUCBr8BHYEJEXtVqteeDg4Of5zFVtl0w2fQv6OnpWZXL5Y6LSB+wP2uNWFIv"
-			$s &= "VfU2MJYkyY9Ff0a+7x8UkfvAenv1BXgGvFDV967rTs7MzHwDaGtry6nqhlqtth04JCJHgHVW74Oq"
-			$s &= "nkmS5FVmAgMDA5vSNH0DrAZeA1GlUhkvlUqzWYz4vt9qjPGAgqruBr66rrujWCxOZqoBVT1rnT+N"
-			$s &= "4/iYDWlm2JA/DMNweGpqalxEjlar1XPA1axdsNmu44t1Xo8wDFNjzGN73JK5C1T1VzfsnO/fzgpV"
-			$s &= "3WW3Lb/ThpfrxuwfnQPlZbBdZgUr+BfwE+xdCffNcQG0AAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACIklEQVR42u2Wv2sTYRjHP8+9GRyM"
+			$s &= "kEzJIeii0Oiq0iGbm1vLKThIVIggyaWCgjr1L2hILq1aUEGkQoaubg4Gi7utsyjYTkW7mSbv43KB"
+			$s &= "UNLchSSDmAcO7p4f93x5nu/zPi/MZCb/u0iUg+d5JpvN3geKwFwY8xVYT6fTq8vLy3ZqADzPM67r"
+			$s &= "NlV1YWCwyGYqlfLGAZEYZnRd995xyQFUdWF/f78IPD/Ox/f9h8BTY0y+Wq3uHLU7wwBYa+9GllAk"
+			$s &= "yucykLLW5gYZnYifz0UBUNXcOBxwIuxxetsdB0Aiwr4NXImowHb/d7lcfiQil/pU82E7H/i+74Ux"
+			$s &= "FlgNgqAVBeBZFADHcdaOtO0JkBrQzvm+d4DfQGtoC+r1+hvg1RCXl7Va7W2/whiTF5HrvQf4HJqq"
+			$s &= "PZ2qLh4eHj6OdRABVCqVm6paBHJhCXeA9SAI3kXF+r7fBDzgRr1eb47KAQBqtdoGsDGNo9hhyhIS"
+			$s &= "DhHpjjQFpVLJNcZcU9W8ql4QkTNAElDgAPgObItIq9vtvm80Gj+HkPRXu93+ELkLCoXCiWQyuSgi"
+			$s &= "RSAflyMhqI+q+gLYDILgz8jLqFwuXxWR18DpMav+TVVvBUHQig1gaWnprLX2C3ByQq0/SCQSF1dW"
+			$s &= "Vn7EIqGq3p5gcoBTnU7nzihTcG4KA3A+NgBrrTOF8TOjVGBr4nc9kU+xt+He3t5qJpPpLQwzZu4u"
+			$s &= "sLW7u7s2u3LP5J+Qv0MYuYVNwT8fAAAAAElFTkSuQmCC"
 		Case "Clone_Profile"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAByklEQVR42u3WTYhOURgH8J+vyIym"
-			$s &= "JhkyhIUaSiyUUPK1sMFGsrBUFlY29hZWs7FhMSkpC9SUopiwUGY1pRBRpHmVhpop34sxbJ6p03Vv"
-			$s &= "73vf3vui3n+dzr3nPvf5/5/znPOcQwcd/KeY8zdId+IOvuIX3uMC+tpBfhzTQZxt77CmSvJV+B5k"
-			$s &= "l+J9AXbgSYzfr1LAmSC5l5P71fgS39c243xuAzYD0Q8HUYpxjMXzhqoEzEQ/r+D7/Oh/VpWC0xH5"
-			$s &= "oxzB65P10V+VgGX4FCTD2BxjB/E6xm8m9ktxJbbpC5xsRd04hB8F2/AllidpGs2xOdGKmdiEq7Hw"
-			$s &= "JvEUZ9GT2GwtEPm4XdVyb4GAt+0S0IOPOQIuNutwEQ5gMApRLRbkTKThFc5l/tmHDwn5SCZNDWE7"
-			$s &= "LicHT1F7nizAFN1RqgfK7oC+iHSW4Btu4RR2BVlX2C6M1tJz/QF2xx4+j6GY6kZ9bcGeKMvdEcA4"
-			$s &= "3uBu+C3Exoj6M1aUDOQontVJ1zSuYV2Rk8NheLsk+ZE6xHn3h8XZg0Sc8dAbTuvhISZwrKTglXG7"
-			$s &= "GskKmMU2XG/A0f4QsKTJevHHDNRwo4STiWQmpkoKqHXu9R38M/gNFDSTCuZAD3YAAAAASUVORK5C"
-			$s &= "YII="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABmklEQVR42u3WMWgVQRAG4M8XFUEs"
+			$s &= "bBQFtVER0UY7wdYmYhALi2ATLcTWRrCws7Gxs7Kz01aEWAniw0KLEJCgCBIJhphGREFf8mzmYAnZ"
+			$s &= "zXn3Agr3w7AH/9z+A7vzz9Khw3+GLQ25VtiOW3iHVQzwFlcT0WtYyXCtxZ9jmImHkbcV7zNcK9wu"
+			$s &= "iFdxOXJvFrjG+FijgOnIPV3gGmFHDfEhPkf+vgKXRa/ArcYmG2El1rEC16iAX3GxNsJsrPsLXKMC"
+			$s &= "4EGNAqqcsw3/L2IMTwrnfy9pw7kM1xq9MJaXWMJieMNEknMFy8FN40I3NEYxXA5iHGdwAgewK9rz"
+			$s &= "Gz5hBi/wDF+T+zCOS1iITnhds6PsxBT6NU2oikEUcRHbYq+jmE9yPuAO9ubEz+PLXwqvF3M4FXue"
+			$s &= "xO81/DLOrRU/jp8jEK9iEbtj76fr8N9xODWi6+H9o8IeTMb3TOaob6QFHNmEC34s1vkS36tpyU1d"
+			$s &= "tBpq2TFQCfc3oYBXsR7K8P2qZ+EufsSjou1bbhDe8CiZqo8Tfog3uN/ZcId/An8ALqG5WPb/BRgA"
+			$s &= "AAAASUVORK5CYII="
 		Case "Clone_Profile_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAC50lEQVR42u2WT2hcVRTGf+e+0Skx"
-			$s &= "sSi2LopdFKzYLvwHpZaItDXrrlItxSzC+0McyFYUhagbV0oDIbw7mKxa2lRbdKNtsYt021Ub/IdU"
-			$s &= "adAmIM0E24q8zPvcvEBIJslMyICFnM273HO453v3+845F7Zsyx5Gk2SbdVbTB6Vp2m1mHwCvAR1m"
-			$s &= "NgNcBD6Komi2rQC8928D40DQwP1HvV7vHhgY+H0jANx6AWNjY88Avkg+ViqVdkt61DnXDdwEdgVB"
-			$s &= "8EXbbsB7/y7wqZl9H4Zhj5lpCS27zewH4DEz2xNF0W+bfgNm9nwhvAtLkwMkSXIbuA6Q5/m+tlCQ"
-			$s &= "53leLINVQkoFwHpbAJjZVLF8a2hoyC2jZy/wCkAQBFNt0cDo6OjOIAh+BbqKsvu4Xq//GQTBQUmf"
-			$s &= "m9ke4Js4jo8VunjKzD4zsx5JNeBUFEXpcvpaKsNqtXpM0jmg3MD9S5Zlr1cqlZmJiYlgfn7+mqRX"
-			$s &= "l8XEcRxXN0QBQBRFX5vZATM7I2kamJM0ZWafSDpQqVRmAGq12ssNkgO8w1oCahLEDeDkOoJ93LmG"
-			$s &= "//TEhkXYkqDMrgN/NXB9uyERjo+Pb8uy7LCZHQVelPQcsB3oBGpFsi/jOH5/SWW8AZwBdhRbVyT1"
-			$s &= "Jkky3zQA7/0hM4sl9QIda2D8McuyI4saWLSRkZHOcrn8gqS7YRj+tFoFrABQrVafBk5LOlps/QNc"
-			$s &= "lfSdmd3Msuznrq6uv/v6+u4PDw+XAQYHB//dtHHsvb8KHAbuAKecc9UwDO82+0bw3r9kZkck7XPO"
-			$s &= "dQIPgNuSbkm6lCTJnVUBeO/3A1PAPUl7GwWv0SfelPQhsH+NsDrwValUeq+/v//WiiqQ9GyxnGwl"
-			$s &= "eZqmvZLOrpN8cZYcX1hYmEzTtKNRH3ik+D6ZpmnvukPEuckoimbN7ESLtO8CuoHLqzWig2Y20QTn"
-			$s &= "PcBsMSNate0rbsA5Nw2cb/aEPM9nCyCTzrm5FhvW9NbTfsv+N/YfRPAmYSbO3YkAAAAASUVORK5C"
-			$s &= "YII="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACaklEQVR42u2VT0gUYRTAf+9biWAJ"
+			$s &= "FaJg7Q8dKpGCoksE3TplUBCsSIcgZ2eWPQbe51SXDkGEO7OSYZ2MbkqQBXko6aAH8ZQVRLCSSCNB"
+			$s &= "IbYzr0OjWO2/dhUK9l1/b+b95n1v3getaMX/FKoqjbBqUfOhsbGxHUEQXBeRq8BRIFLVOWPMXcuy"
+			$s &= "7omIep5niYj30+NXVuv9plbxlZWVCRG5CXTHwgkROamqw4VCYRhgcXHxPvC+HGtKIAiCQeBclZRr"
+			$s &= "hUKhz3Xdkqrmy7GmBERkoI65GAAwxryoxBoSGBkZ2QkcqqOLPQBRFBUrsYYEkslkBGgdAmHcgUQl"
+			$s &= "1pBAOp1eAxbqEJiPjytViTUzA0N1CAwBhGF4thJrWKC9vf0O8LhKyi3btsdd120TEbsca0ognU6H"
+			$s &= "xWIxLSIW8BJYBpaAZyJyybbtQYBUKtUP7I7ZJHBxnbWi4bvA87wDQC9wRkSOich+Vd0FRMAX4AMw"
+			$s &= "B0yp6hPHcZYBXNdt6+rq6lXVy0BRRObDMHydzWYXagqMjo4mV1dX+4AMcPovPiQUkUlV9VV13HGc"
+			$s &= "777vHwGeA/vinHci8gDIZzKZT38I+L5/ARgG9jbZ1Teq2u84zqznecdFZBZo28Q/x/zphkA+n+8x"
+			$s &= "xswAO7foaJdKpVJ3LpcLfN+fAM7/xr8aY05YlvXWxGs0u4XFAfYkEokr8TKbK7fpoyjKbewBETm8"
+			$s &= "DQPeHd+IH6txEyeZLf+9RNYvp6jaElwXmN6GDryKRQ5WEJxmfTo7OztvBEHwTUROiYg0U1VVS6o6"
+			$s &= "Zdv2Q9u2UdU1EXm0iauqznR0dNxureFW/BPxA4ur/Y2Nvu5/AAAAAElFTkSuQmCC"
 		Case "Clone_Profile_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB9UlEQVR42u2WTUhUURTH/1cTww+E"
-			$s &= "CD8Qo1wIGkghQZQQfi3aVBuxFi4FF+3bt2jlxk0bESJooYEQFJWkCxeuBEFFMShiRhhGwqDUWuj8"
-			$s &= "3JyBx2OeznXmScL8N4d37rnn4/7PPe9KJZRwHgG4Yvkq8wjaDXwC9iRlgBTwEmg4i4qHgQNyYwu4"
-			$s &= "GmfwFuCvBZu07wrgLrBi+rk4E3hmQb6EuQeuALu2fi2uHmg3OeOcI7jgnEtIWrLPjrgSyJgsj1i/"
-			$s &= "YPIwrgTWTD4GykIUtEnqCtkVvQfqgd/G8wxww3QPgG+mfxewvwy8tmu6AYwWPDeAh8C/iGu4CTSa"
-			$s &= "XTmwmMNmpBgn0Qm8ARLADrAKPAfqAja3IpJcPqsR3ReRwI+CR3GeWJL0M4f+42krugjcB8ZsECWt"
-			$s &= "ITNGw1fgRWhPP7AdqH42SFO+ge8Ar4A9jsd6tgFD+2tsVLd73QCgwSrNYh94DzwF7gGNQLXZVgKV"
-			$s &= "hXIWnu3zknokpSSNS5pwzu14vBFuSuq1sVwjaV9SQtJ3SZ+dc6njHFy3qv8ATZ6UDQFrJ9B1AEwB"
-			$s &= "rVFOHpnhB8/gg/hhC6gK/0gkqcLkJWAwj9gLzrm0pCeetDdL6pY0G04gi9uSpvNwNCApLan2FL1X"
-			$s &= "l+sEkpLeejhJZ09C0i/PBJKlp30J/w2OANwthw6HSaECAAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABtklEQVR42u2WP2gUQRTGf3MXQyBY"
+			$s &= "2CgK0UZFRBvTCbY2iiIWFmKjFmJrI1jY2djYWdnZaSuBWAnikUKLEJBwIkhEDJpGRCFe/Nm8gyXs"
+			$s &= "rpO9Cyjs17wdvjfzvmXen4EWLf4nqKkJV4dORtBJ9bb6FthQB+ob9dowqHodGJRxo/7xpPrcajwK"
+			$s &= "vwm1X8aNKuCOf8el8L1VxY0i4H2GgPnwna3imgafMg8fw39vFdc0CX8DZmjdCNut4bYuIKW0DvQz"
+			$s &= "BCyF3VfDNS7DhxkChj6nGu6vzYOu+rTm/u8XynC5jBtHKXaisbxUv6ir0RvOF3yuqGvBzavn2rmR"
+			$s &= "i7rhsh84A5wEjgEzwM4oz2/AB2AReAHMpZS+DvMh9l0EPkUlLKSU+jn3Pa1eVXtuDQN1Tr2g7oiz"
+			$s &= "DqsrBZ936l11T1Xws+pnR8eyeiLOPK7+2sSvqac3Bz+q/nR8WFV3xdnPSvjv6sFiI7oBTI0xt3YD"
+			$s &= "l+N7sYSfBm4WBRzahgQ/Enalju/kvowaoFsYapVjYBi4tw0CXoU9UMH3ACZicQ/4AczW9YZMDKI3"
+			$s &= "PI71OvCkmPPAa+BB24Zb/BP4A5Wp60tfBBu8AAAAAElFTkSuQmCC"
 		Case "Clone_Profile_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADB0lEQVR42u2WTWgVVxTHf2dmfK+8"
-			$s &= "PiuKtSVSF4Haqgu1BbElXfiRdXHxtKUIWZQ0JLyZfCxKpUJaNy6Cb2ZeSNOU6koRP9GNtqUushYK"
-			$s &= "NfQLUTFYTRE/0LZjkrmnmxuIJi95UV9RyH9zh3vOnPPn/M+958I85vGcQv73QEEQNBhjPheR94Ac"
-			$s &= "cENETgJfRFE0UlMCvu/vBA4A7jTma47jNIRheOVxCDizOXR2dr4GDNjk+z3PW5EkScYY0yAiF4Dl"
-			$s &= "qvptzSpQLBY/FZG9wI9xHDcCOkmWFar6C/CiMaa+t7f38lOvgIissuuJyckBoii6Cpy39tU1kQAw"
-			$s &= "AKrqViDo2TWtFYEhu37Q3d39kH9bW9tKVX3bEhyqSQ+0tLQsy2QyF4GFwEnHcb5MkuTPbDa7UVVL"
-			$s &= "QL2qni6Xy+8DdHV1LR0bG9sHNAJ3gCiO468fla/qCvT39/8F7AQeANuMMT9lMpkRVT0F1AN/pGn6"
-			$s &= "CUChUHBHR0dPW/9XgTeBr4Ig+PhJJCCO41MisgE4pKrDwG0rzZ4kSTb09fXdAKirq3tLRN559H9V"
-			$s &= "ba0U26tWqyiKfgY+mslHVV+qYFr8RBWoFkmSnAduTmM681hN2NTU9EI+n98kIltEZB3wBrAIyNsG"
-			$s &= "uwkci+N416SLa6uIHAJetls/JElSGBgYuFs1Ad/33wWagYIdPJXw6/j4+OaJHphAa2tr3nGctZ7n"
-			$s &= "3QrD8LdKJ2AKgSAIXlHVg8AWu/WviJwDzhpjLqRp+nsul7vX09Pzd7FYzAKUy+UHT20c+75/DtgE"
-			$s &= "XFfVyPO8b0ql0q1qY7W3t683xmwGVluZ/gGuquol13W/C8PwekUCHR0da9I0HQLuO46zcjrnGd4K"
-			$s &= "O4wxu0VkzQxuKXDcdd3PSqXSpSmnQFVft5+Dc0xeUNXDsyTHjvPtaZoONjc356bcA6q6wH4uCYKg"
-			$s &= "UEXuwSiKRlT1wznKvjybzTYA31e6iDaq6pHZoqhqIzBiZ8TcJqDjLJpSAWPMsIgcrTaIqk68Awft"
-			$s &= "1Vw1jDHD8+/6eTwz+A/cRSuVzNmpzwAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACg0lEQVR42u2WT0gUURzHP78ZXQTp"
+			$s &= "MkRB9McO1SIlRZc16Nohg4KgkA4JWkTqLIRBxzkVQuLOLrG1SAR1W7opQRbkoWQPejCDyAoiEBMZ"
+			$s &= "ISh0a+bXZYzFXNdGhYL9Xh6Pz++9932/93tvBqqq6j+TRGTRBzmOE5ufn7+mqheBA0AATIjIHdd1"
+			$s &= "7wNq23YHcA/Q5azS/EalxT3PG1LVW0A8NGwCR1R1wLbtAQDLsh6o6seVWCWZq8GmpqYbQMcqIUcS"
+			$s &= "icTb3t7e183NzTHgxHJWKBTeRM4A0F5pB6raHrYvyrFIBtra2uqAvWvIYiOAYRjT5VgkAw0NDcFa"
+			$s &= "igjwAXzfN8uxSAYcxykCU2swMBm2O1Zh0WpAVbMV77FINjyC4+VYZAMzMzMZ4PEqIbdd1x10HKdG"
+			$s &= "VS+vxNZlIJ/P+5ZlnRORDhF5CcyJyCzwDDiTTqevA3ie1wpsDdmwiJxeYlVF/hYkk8ndQRC0iMgx"
+			$s &= "4CCwC9gCBCLyVVU/ARPASG1t7ZO+vr658PbUeJ7XApwVkWlgUlUL6XR6qqKBnp6e+sXFxfMicglI"
+			$s &= "/MVGfGAYyC0sLAzmcrkfnZ2d+03TfA7sDGM+AA9F5K7rul/+MJBMJk+p6gCwfZ1ZfWcYRmsqlRrv"
+			$s &= "6uo6ZBjGOFBTwj1Vbc1kMk9/G+ju7m4UkTGgbkPOVWS2WCzGs9nsvG3bQ8DJZSHfTNM83N/f/94I"
+			$s &= "B1zZqMXDB2xbLBa7EHYnVgip933/auk7sG+jq1tV4+HmPpfJUrzUgLEJN8wMjQQrwSAIjNKFRzfB"
+			$s &= "wKuw3VMmA6MsVadlWTc9z/sOHI36c1ky8c8gCEYymcyjsF9U1Xzp6QBjlmWlqs9wVf+EfgFdWfUP"
+			$s &= "qsgIzgAAAABJRU5ErkJggg=="
 		Case "Rename_Profile"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABuklEQVR42u3Wu2tVQRAG8N/1RawE"
-			$s &= "iUk6sbSwUHsFwQeoSAKmCGpjExR7kVSSf0BBq1QWFqlFiSktkiIKmsTKRhFJwErRKD6uzRxYDufc"
-			$s &= "e27knOp8MCz7mP12dnZmlhYtWmwPV7CCX/iNl7jaFPkDdEvkYd3kU0H0DdPYFzIdY91YUxuWguRW"
-			$s &= "wdzNmFuq8wCZlSMFc8PJ7VTGjgEP8DfanQVzu6L9U+cBXkV7rWAuG1up0wWX4pp/YgaHQmZirIsL"
-			$s &= "dUfCbI8wnG0qF5zHc2xgE4tNWP4/GMZTfMUj7G2S/ABe51y1iKFBNxrDdczFS9/Ej4j795GA7mMi"
-			$s &= "R/6m5L3cqUI6FIXnReSAbh/ZwrnQHcFqj7Vz/chP4kOi8CmUpnAU+7EHu8PHx3AkIV8LvY0C8u+x"
-			$s &= "vhQH8SXJ7RMl2a8Iown5evRv58hP99vkbix+kqTYquTrobsW/U6U6cxFZ6ps9HgbpXUUb0NvNdzQ"
-			$s &= "Sf4PWzhbVkDKxo/Hr6cXPoabTuAw3uEUPkdU3IhoGcdCVWvmK7z4TOZDZzLpd3AvqRsX9bE0j+UB"
-			$s &= "rj6/9nKIIB/HsyYy3mTuZnpa3qJFhn96yp4uwA28CAAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABaElEQVR42u2WvUoDQRCAP0UwVjZq"
+			$s &= "7HwAwcIX0EYtFETLoJUvIZaSJxDUJlUKH8G/lBaxiII/EQsb02g6URJP1MRmDpYjtzcb2atuYOH2"
+			$s &= "Zm6/WebvIJNMMulPNoAa8A38AFfAZlrwfaAbsw58wwsWeLgKPh2oKhyo+nSgpXCg5XLgoKMDHYXN"
+			$s &= "r08HrhU2NZ8hWFWEYMV3JRQt8GJavWAZOAdegSZQSePm/5Ex4Bj4AMrASJrwceAmEqoKkHM9aBLY"
+			$s &= "AkqS6U0gkLp/lga0B6xH4LcCfQDmgRfZ72igORk8F9IDkiogkPwAmADuDN22vC/LvpQEnwMaCmgc"
+			$s &= "/D6i7wBn8twGZm3wKeC9T3i+B9xcbWAh6fa7DvCu8S+QB+oWu09gURP7Iwd4Xb4Z7pHtUfiSdhYM"
+			$s &= "OVTHo5EzMzE2AbAmOaBywGWihbajMfovKc1Tl5seAgPKaXlp0YXwkzQ63jTwZsT8SZPtmWTyB3by"
+			$s &= "wjc2LNSnAAAAAElFTkSuQmCC"
 		Case "Rename_Profile_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAC8klEQVR42u2WT2gUdxTHP282G3pp"
-			$s &= "4qE1XowgXuqfVuipiBZCb1KqYHJoRRjcmZ1Ii2VPhVYIYuuhILaYrjO/JQFFQQoRQePfaG8KLRVr"
-			$s &= "Wy9eBEmpBHIJGndnfs/Lb2FZzborXS/Ng2Hm9/t9f+/75s1739/Asi3b/93kVTYZY3ar6pfAe87H"
-			$s &= "HeBoGIYnux5AkiTjwL4XOhMpB0GwrxN/XifgOI4/deSPgVFVXaGqK4BR4LGqjjpM29bTUbpEvnCP"
-			$s &= "X4VheLxh6bgxJqeqxxzmdFcyALwLkGXZmeYFa+2ZRky3ArAAnuflmhfSNK1nM+taACLyu7vvee5b"
-			$s &= "9vTU537rWg0AR4BtwMEkSfIicgpAVT8DDjRguteGxphDqvr1Ehn6NgiCb7ouRHEcbxeR/a7gBPgD"
-			$s &= "+CEMw/OvRQlfIeC3ROQEsBU4u7CwUCyVSk9eSwATExNvp2l6rak9r+Xz+Y99319suwjHx8dX9fb2"
-			$s &= "blfVD4DNwGqg37XdHDAL/CoivwRBMNVAPgNsanL3UZqmJeC7lgFMTk6+kabpLlUtAltUdamMDbpr"
-			$s &= "c5Zl0wDlcnllrVabEZGNL9qgqmtbtmGSJB9Wq9WTIrLaTf0DTKvq9Vwudw940NfXtzA/P68uE4NA"
-			$s &= "LYqiu+VyeWUul7sObAD+BQaa3D9R1Z+WrIFKpbLGWnsXeBO4JSLf9/f3nxsZGcnaaNMBVZ1x5H+L"
-			$s &= "yJC11heRw3VyEfkkCIKrSyqhqu515BdmZ2e3BkEw1QF5/c3/EpGhQqHwyPO8QQdZVNUddfJWAaxz"
-			$s &= "99NjY2NpmwI1oKo3gPWq+meWZUOFQuGRMeaYqo4Ci8COYrF45aVSLCI9qoqIvB/Hca0Vsao+jKLo"
-			$s &= "prV2m4i8A9zP5/NDvu/PGWN+dP8Pi9banVEUXe70LCiJtJYKz/N+Bm6KA4rIbd/35yqVylHgc6Bq"
-			$s &= "rR2JouhS24eRqt56GXEjtmk8bIwZdsOnwM4oii52dBqGYXjkPxDBqrV2uBX5si0bwDMc3EEwT7tX"
-			$s &= "5AAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACNklEQVR42u2VvWtTYRTGf+fWNC7S"
+			$s &= "RatLFcTJ+jmKShdxKWKtTn4MRd73jQVR8j/UUWohXHJTGmhQN0VQtJ90EQSloIK6uDo5FhrJ9T0u"
+			$s &= "KYSSXG9C42IeuNN9cp7fPTnveaGnnv53SSc/KpVKN1X1PnCyXuMjMG2trXQdIIqiAjDZtJhIaIyZ"
+			$s &= "7BpAsVi8LiKPkzyqesM59yRtzaAtWpG7O+HpGAA4sUOejgF8Cs/vrgGIyHoK24duduDhDnk6AzDG"
+			$s &= "vBCRqYQOTVlrX3Z9ERWLxVERuVcfOAE+AY/aDe8YoAPgvSIyD5wHnm9sbLh8Pr/5TwDm5ub2xXG8"
+			$s &= "vO14LmcymUsTExPVXWkLFQqFA/39/aOqegY4BQwBA/Vj9xP4AbwXkTVjzLOG8BXgOPBVRCaBp6p6"
+			$s &= "IY7jPPAgEaBcLu+O4/iaqjrgrKq26tjB+nPae78AEIbhYK1WWxGRY/UVPW+tXYuiaAm4paqHE/+C"
+			$s &= "KIpGVLUiIkMpm/RLVa86516FYTjY19e3Cgw3XhPAEnAR2FTVc8659aYAs7Ozh7z3n4E97YaXSqX9"
+			$s &= "qrqyLbxRmyJy2Riz1HIPqOrtNsIBTEP4akJ4VVXHtsKTAI60Ef7FWluZmZnJquoicLRVODDmnFv8"
+			$s &= "6yYUkdSnQ1W/AWSz2ZGEm7Dqvb9irV1ItYpVNfWNFgTBlneg1XwA47lc7k2zl02/1HsfiogEQRCk"
+			$s &= "6MC7pOEUkXFjzOuur+IoioaBtw2d+C4idxoHrqeemukPenHk0GQpeo0AAAAASUVORK5CYII="
 		Case "Rename_Profile_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB0UlEQVR42u2WsWtTURTGv9fGEqdC"
-			$s &= "SZNu4ujg0HS3INQWaikN2CGoS5eguItkkv4DLdipU4cOmaVFMzqkQyq0USeXFpEWnCyahGh+LufB"
-			$s &= "4/GS917lZXofXC73nHvud849757zpBQpUlwDwGOgCfSAP8Ax8GRU5G8YjJ2kyctG9AuoAJM2KiYD"
-			$s &= "KCfpQMNIXgTonpuukaQDbpT5AF3OvZ04Z47F9KFv83iALmPz3yQd+Gjz0wCdK2smmYJVu+YuUAVu"
-			$s &= "26iaDOBh0i9hc8gz3BxVLVgG3gMXwCVQTzzy/3Q4BxwAV8AecHOU5NPAiS9VdSAb96AZYAPYtT5w"
-			$s &= "CXSsNpxZkdoGSj7y0wHfy6sopFlrPB+APuFoA0tmmwdaQ/buhpHPA+ceg+8WfRmYBaaACeCG5bgI"
-			$s &= "3PWQfzK7iwDy30BxGPkt4Kdb24ESMB4xVQUP+Wdbv/SRL4Qd8to2vwUyMb6TgpFiThQAB9jxpOhB"
-			$s &= "lIP247ZWI/tidi1Lg+P5f2gDi4MayCD5HNAL4f7mOE5D0j1JdyR9lXRf0g9J25KeSepIWnMc513U"
-			$s &= "aGpER81s1t21Rb7l6RsrConUj6MYJcK/95ENSepa5IejqHjrvpsZGnmKFC7+AUlSC/RVegBKAAAA"
-			$s &= "AElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABfElEQVR42u2WO07DQBCGZxESAQoa"
+			$s &= "Xh0HQKLgAqEBiiAhUkak4hKIEuUESECTKgVHAEJKilAEJB5BFDTQQDoEijEC/NFsJMuK7d0gu/Lf"
+			$s &= "+DGz8816Z3cskilTpgEEbAIt4Bv4AS6BclrwfcJ1kDS8RLxKSSbQNEigaRNTWSbQFZGxGDdHKTVu"
+			$s &= "GnPI8iN4Bj6/NgFtE7gy8GklWQPrBjWwlvROqETAK2mdBQXgDHgFOkAj8Zn/M+FJ4Bj4AGrAaJrw"
+			$s &= "KeA6sFQNIGcbaBbYAqq6D3QAF+gCT/qQ2gOKAfiNht4DS8CLft4xgeZ04zkHPIMd4AIFPXYauPXZ"
+			$s &= "tvX7mn6uxsHzwDPmCsLvAnYPqOt7B1iMgs8B7wPCZ/rA/XKA5bjZ72Knsg/ejvD7BFZM1v7IAt7W"
+			$s &= "Y0b6VHsQvmraC4YtNsiDvuZFZCHExxWRDaVU3TQBm47W850IsX+JSFEpdWoz00P9r2DSLS8ibD34"
+			$s &= "SRon3jzw5lvzx9hqz5RJRP4ACe8xFkMNUZIAAAAASUVORK5CYII="
 		Case "Rename_Profile_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADBElEQVR42u2WT2gcdRTHP29nB3Jw"
-			$s &= "mRJs46UVxEuJfwpCQEorRG8itmA8qEjEQzcbZ0aai1CFIP45CMnO7Kp7DBYLJVDxYP3XRG9psChS"
-			$s &= "/1y8CJJGzSlIMu6f+XqZhbB204y4XsyDYX783vu9953fe+/7BvZlX/7vYv/kUBiGz0h6EbgfMEnf"
-			$s &= "mlk1juPzAwcQBMHbQOWmzszejaKoksdfIeeXP5UF3wKmkiQ5kCTJAWAK2JI0ldnsWYp5jCX52fKl"
-			$s &= "OI4bO1SNIAgcoJ7ZXBjIDQD3ATSbzYu9Ctd1L+60GRSAFGBoaMjpVWxvb3dvszNIAF8DdDqdZ/+W"
-			$s &= "y2Kxu3dtYDUAzAEnzexV3/ddSe9n1f808Eq2nht0G74GnOujfj2O45fz+HPyAlhdXV0eGxu7ZmYH"
-			$s &= "gdvMbAtYMbOwpzMGx4R5ZWZm5vZ2u/2epBPAB47jnJmfn9/+TwD4vn/QzK70tOeVzc3NxxYWFpI9"
-			$s &= "F2GlUrnDdd1HJT0IHDOzw5K8rO02gDXgK0lf1mq1S93ghUJhSdK9Pe4e8TzvLPDGrgAmJyeHPM97"
-			$s &= "QtIZ4Lgk28GKO02PZM8xM7sMUC6XD5nZkqR7+rDqXbu2oe/7DwHnJR3Otm4Al81sOU3TH4vF4s+e"
-			$s &= "5/2xtramUqnkdTqdI+12u1Wv16+Xy+VDrusuA6PAr8BIL28VCoV3+tbA9PT0nY7jXAdKwFVJb62v"
-			$s &= "r3+4uLh4S5YLw3AkTdMlMxsFfjCzceA5SW92g5vZ41EUfd6XCR3HeR4omdlHw8PDJ2q12qW9Bpe0"
-			$s &= "bGajkr43s/Eoin7L0gOQSDrVDd43BWZ2d5bjC7Ozs+09juoRSV8AR4HvWq3Ww41G4/cgCOqSpoDE"
-			$s &= "zE7FcfzZLalYUjF7PxCGYWtXIjH7pVqtrgAngaOSfgLGG43Ghu/7cfb/kACnoyj6NO8sONtT7TcD"
-			$s &= "uwisdDvEzL6J43gjDMOqpBeApqQna7XaJ3mG0dUcXNNrOxEEwUQG/M80TU/X6/WPc03DOI7n/gUS"
-			$s &= "bEqa2C34vuwLwF+SoU6kxrHIiAAAAABJRU5ErkJggg=="
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACX0lEQVR42u1WO2sUURg9ZyaDFso0"
+			$s &= "JtpEQayMz8Ik4iON2IgYo5UoBESybpgdY36DYpXMY0XLkBR2Wokmm4Q0ooshIAEfiK2VVQoTIbnH"
+			$s &= "ZiPLsruZWbM27oGBgXvmO2fm3u98A7TQwv8ONvKQ7/s3Jd0DcBwAJX0gGURRNNV0A7lc7jGAbNVi"
+			$s &= "5JMwDLNp6tkp3/wGgEd1KKd6e3u/FovF5aQ1rTQGJHnbwWnYAIBj28Rp2IBJwNlopoGlBJzFZhoY"
+			$s &= "27KtyLGmdUGxWPzS09PjADhfg/IgiqKnTTNQMjHf3d29SLIdwC6SPwG8JemnFW84CdNidHR0z/r6"
+			$s &= "+qSkcwBe2LY9ND4+vvpPDHie105ytqI9Z1dWVi5PTEystSUtlM1m9zmOc0nSaQAnSHZKcktt9wPA"
+			$s &= "dwDvJS3Ecfx8U9yyrDlJRwF8siwra4x5BuCC67r3ATysa2BwcHCn67rXJQ0BOCOJZYlXTt1fuk4C"
+			$s &= "mAaATCbTQXJO0pFSd0wGQbCQy+UKAG5JOlh3CzzP6wMwRbIz4Uf6JelaHMcvM5lMh+M48yS7ylMa"
+			$s &= "QAHARQCrlmWdDYJgqaqB4eHhA7ZtLwPYnVbc9/29xpi5CvFyrJK8EoZhAQCqboFt27dTiAPAnU1x"
+			$s &= "SfMkD9fgrUnqj6KoUDcJSR5KIf4xiqIpz/N2SJoBUFOcZH8cxzNbRrGkxN1B8nPptq/OJFwDcDUM"
+			$s &= "w+nKhba/nWiSNgDAsiy3ojP+nA9jzEA+n39dbbGt1q+VMYYkkwyrd/UOJ4CBfD7/qulRPDIy0mWM"
+			$s &= "eVMKJwD4RvLu5mlvoYVa+A3vW+qHUrxYhQAAAABJRU5ErkJggg=="
 		Case "Remove_Profile"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABg0lEQVR42u3VT0tUYRQG8N9MDkZQ"
-			$s &= "QmALQWxTqyihRat2rtpnqa1EwgQ3+gGqjR+hNrVo2ULSVcsKSQbCVe4FgwgJREUhsblujnAX1zt3"
-			$s &= "ppmB4D7wcl7uc885z/vvHEqUKNEcFzCP7zjB35jPo9qL5MtIzhnL3RYxF4kOMI0rGMBMfEsw200B"
-			$s &= "G5HkWQY3G9y3bgo4iiTXMrjB4A7/JUFfE74Rtprj28jg+nEpJ+4hjosIrMcqFzK4xeDWM7inORc3"
-			$s &= "wcOiO/Aa97CEGt6jgkd4Ef+8yvD7g92cuMdFj6iCtzkredOrYjSJz9iJ8QkTZY3uBCo53BAe4D5u"
-			$s &= "YQSX4+z3sY1NrOEjfnZC0EVM4Uu876TgaMQdmYga0BbG8CMV9Ffc8se4g6vxFGsxHw2x7/A75bcV"
-			$s &= "u9YSrqeay1eMR6Ki6MeT6AsJ9jDcioCX4bjS5F40QxWrEet5UQe4EfZDOLeLRlRLuNlKMzqzt9N1"
-			$s &= "uk3cDVtrRcAZFnpdB/pSXa/TqCtR4n/AKfj9bKzwISPxAAAAAElFTkSuQmCC"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABMUlEQVR42u3Wu0oDQRQG4C9GULw9"
+			$s &= "gCDaaGVhp43YWPkG0UorEfI2Xhp9hNSWKkIUxEp7QUHELhFvaBKbTZfdzOKuIOwPP7vMObPnnzNn"
+			$s &= "ziwFChTojzKquME3WtF7FQN/EbyGTgxreYvYSQje5XaeAq4DBFzlKeAtQMDrbwIM9rG3A74R5zOC"
+			$s &= "oR7jH3gPFXgZkIF6j3kr+Irx/8RCaAYOsNjHZ7/HWBNPGO1ha6TZthKOElZ/+FfNaB2neI54gkrR"
+			$s &= "o7NAKcE2iTUsYx7TGI/2vol73OIcx3jMQtAwNnAWne9OINtRjVRizn4QVvGQImgc76KspcIMXjII"
+			$s &= "3mUDUyGBu1fpJsYyrK0JbKURMJtDgc+lEZDHT0U5jYCLHATU01zHu9FzKVR5AlrRgvaKNlvgX+AH"
+			$s &= "F4WOzfTWlIwAAAAASUVORK5CYII="
 		Case "Remove_Profile_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACbElEQVR42u1VPWgUQRh973aOeGJQ"
-			$s &= "MNUiaqMQDTYKVunEQkExkggpFO/cXbCIYGG9NvYe6LmbnNeIkoUkCIKNlQFJn6itGLhg4x4xkp/N"
-			$s &= "zmczSjA5s/E8QbwHC7vzfTPf2zcz7wM66OB/B7dLiKLIajQaN0XEJdkLgCLyjmRYr9cf+L6v20Yg"
-			$s &= "iiIrjuOI5MBWcRGZXFhYGGyFRO5XwUaj4ZniSwBKKysre0Vkn4g4AJZIDti27baigNomXjJ/esfz"
-			$s &= "vMcbxsfCMFQAKiRLAB61RQEAvQCgtZ7YxFypCUPuWDsV0IbAJqJJkiiSP3I2olwudymldjdbtKen"
-			$s &= "5+vQ0NBaFgXmACCfzw9vERsGAJKzPwcKhcI1pdTnZk8cxxczKSAiFZKnAdwLwzCfpum4Uopa6ysk"
-			$s &= "fZP2cJNsWq+SjJvuey63lukaighHR0fHABSbpFRd173RViMCgCAIhkm6AL4fuLckQ8dxnnW8vG29"
-			$s &= "oFqt2uvr6+dI9gPoI3lIRLoBCIBFAB9JzgGYzuVyL0ulUr1lArVabVeSJJdJuiLSn/WMGFKvSQbL"
-			$s &= "y8uTIyMjqzsmEIbhGQA1AAfM0CcALwC80lq/V0rNp2n6BQAsy+rWWh8EcBzAWZLnRWS/mfeB5FXH"
-			$s &= "caYzE6hUKocty5oFsAfAGwD3RWTK87wkyyLlcrmrUCgMArglIqcALCql+orF4nwmK7Ys67op/txx"
-			$s &= "nEskZSf7aCR/4vv+U9u2pwBcSNO0COBu1mZ0xBjP1E6Lb4Tv+1pExs3n0czNiKQSEZA8EQTBYEvX"
-			$s &= "ijxpXvO/0w1vmw7316CM9DN/urCIzHRstoN/At8AYmryRZky3y4AAAAASUVORK5CYII="
-		Case "Remove_Profile_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABl0lEQVR42u2VzytEURTHv3eYSKGm"
-			$s &= "WCixYSWUhdXsrGys/BpKyQJl4x/Axp/AZiwsLSasLJGUkhV7RUkSoVHE+9icV7N4njfGTKn3rdN5"
-			$s &= "3fPO93y799xzpRgxYvwAoApYAM6BD+DTvheARCWK5/geubKKAOat0AswDTQAjcCMrQHMllPAmRWZ"
-			$s &= "C4jNWuy0nAJerUhzQKzJYvlSalT/EPfMJ0JyvQBxNZLqQnjzzrn374gLcWE+ExDz184DYlOSHkJs"
-			$s &= "KOoOrEvql7QKJCVtSXKSRiUt2z9rAXlvkh5DeN+j9oADNkKuYbZSwygDHAB3ZvvAeDym/wIuZNtb"
-			$s &= "JA1KSkvqktQmqV4Skp4lXdktOZK055y7+YuzrgUmgEPAIzo865FxmwG/Kj4AXBeQ3gJZYAzoAVJA"
-			$s &= "0iwF9JrYTeC+IO8SSBdbvL3gcTkGRuzeR82vASaBU+N4AlqLEbBiiTuAK+EIE8CucS1FyfFHcYf5"
-			$s &= "beccv+5o5zyblpLUWcxj5PtuYLjEXu4znyxGgI/FSs8BX8BJGbhPFCPGf8AXz0LH0AduVLsAAAAA"
-			$s &= "SUVORK5CYII="
-		Case "Remove_Profile_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACcUlEQVR42u2VT0gUcRTHP29mFqNt"
-			$s &= "KS0Ql6guBZZ0KciLt+hQUGQMgYcyLYNwdqVDh07TxaPQjmUtVpcIDFSKoEunhFA6KnXoEglBB3fB"
-			$s &= "2lh1dl6XMaR2dWzZINovDG/m9/59+fKb96COOv53yEYBtm2bLS0t14A+oDXMeQdkm5qa7riuG9SM"
-			$s &= "gG3bZjKZfKqqnWWTRSYaGxvtakgY6zmTyeTVsPk3Ve1V1e3FYnEHcCU868zlcn3VKGCt5wyCoFdE"
-			$s &= "UNUbnuc9XOMaTaVSFjAiIr3AvZooICKtACsrK+O/+lR1PLQHa6YAEAAYhvEbUdM0rSAIfsasheM4"
-			$s &= "Db7vb61UtLm5ueC67vKGCgBzAJZldZVRoCu0s2WUuxiLxXKVnnw+fyaqAiPAMWDQcZyYaZpjvu+L"
-			$s &= "aZrnVdUN1blbJm8JyFcqqqrLUeeApFKpUaCngv9BJpO5XM0dMDcKmJmZed7e3v4B2AXEge+q+ha4"
-			$s &= "6XneYH2W12wX9Pf3Jw3DOKmqHUCbiOwFEoACi8AnYE5Epkql0svh4eHPVRPo7u7ekkgkzolIH9AR"
-			$s &= "ZVmtXmzgtareByY8z1vaNAHHcY6LyCNgd3j0BXgBvFLV95ZlzRcKha8A8Xg8oap7SqXSIeCEiJwC"
-			$s &= "doZ5H1X1gud5U5EJDAwM7AuCYBbYBrwBbheLxclsNrsSpYjjOA2GYdhAWlWPAouWZbUNDQ3NRxrF"
-			$s &= "qnopbP4sk8mcDSWNjFDyx67rPllYWJgUkdO+7/cAt6Iuo/2hndxs87VwXTcwDGMs/DwQeRmp6upI"
-			$s &= "PpxOp+1qfitVPRK+xv5kG15X1b86B1YJTNeg9jR11PEv4AccSvGnmyVjbQAAAABJRU5ErkJggg=="
-		Case "Settings"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACa0lEQVR42uWXTUtUURjHfxMpjSBh"
-			$s &= "tXFTiS7shTHKNKgPkKHRC1jzDdq0TcFNOG3cRBst6yOkC+kLtIhcBAYVzCiWWouihQWz6ZY2bf7C"
-			$s &= "w/Gec++dsaA6cDjnPud5457/83Lgfx+5OmT2AEOesyfAt9/t9Cmg5pknsyrbXYcD3VrLwBvtjwNH"
-			$s &= "NBeyKNvVgAMPgGHNaeesYQe6gU7P2VGtq4a2orXgkenM4lwOeA5sAo+BPtH7gafmvnuMTMHQ54Gz"
-			$s &= "ovdJx6Z0pgJ9MQZcC8CG9p+Ae0CLkckDE8A78WxIxtVTTDKeB9bEPArcBJaM0tviCYH6FvBDMkvS"
-			$s &= "MaLvtQR5xsS4CDQZnAwGYj9uDGpuYawJqEj3mE+oHaiKaTKFkQPABWBA+6QxKd1V2do2WoBH5r5m"
-			$s &= "gDZP5NwBIsMbASVPVLVJ1xbvfQc/28Y14KuYVx20I+O+TFhyeHukowZ8Bi6mvcMOA8Yrzm+PAg5E"
-			$s &= "znVcEv2t77f7EtEK8EX794Z+GmgOON4M9JrvD1qrwMesqbjWQMV09eeypuIOYJ/2hwz9BfA9YDAS"
-			$s &= "D47sXuBgWq+HHRCeyADC8QAI14GrIcNuGM4GwrAUE4bjgTCcNbzTvjCsJxENAOeB/Sn4p5ISkU3F"
-			$s &= "lZhUXMwAvssxqXgxKRW7xWjEKUY14CHQGpBvBe4CP51iNGowla+nHL805XhdV5R3HJ/SWagcX0/b"
-			$s &= "kMyriZhRIwJwBnhmlBVSNCT99TQkqLns8pzNyZDN60OizXlkunwtmS8RlYFlz9lrrYedxAXwyiOz"
-			$s &= "LGDvSFte1noDOKf9Ma2VP/Ga2tGHyV/5NPu3xi9hrdn3CxzSbwAAAABJRU5ErkJggg=="
-		Case "Settings_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEmElEQVR42u2XXWwUVRTHf2e6NkK7"
-			$s &= "IRgSU0haCUJaEUhVkEQS302AIKGKb8jOzFoxMVWMih+jlqgY+tLYdO4s8GKkCJKAic++GDBN5MMP"
-			$s &= "sBCxmK4xYghhi7rMzvGBWRzW3W1X4UnPy+7cM/d//vd83oH/ukijG/bs2XN7sVhcXU3X3Nz8yaZN"
-			$s &= "m35vBC/VKIEwDBeLyEfVdMVi8X7gy1tKQFU747+nROTreO1eoEtEuholYP2DsHXGRodt2+6xbbsH"
-			$s &= "8JO6f03A9/1O3/cX1PDAPQAi8kNi+Vz8u7QG3gLf9zunRUBVxbKs3SIyZozZn8vlVsQgDxpjPhOR"
-			$s &= "RwGiKBq/nsl/kVljjDmSy+UeAsjlciuMMftFZMyyrN2qKlNWQRAEG1X1wwpSx0RkKdAE/AyMqOrL"
-			$s &= "ruteARgYGJjR2trqARuA+UBJVU+KSPcNxkSesG17b00CMdBpoF1VXxKRSeAZYGEM2j85OfluX1/f"
-			$s &= "b9Xc6Xleqq2trU9EtscJfgYYBGYC7wDnC4VCZ3L/DSFoaWnpA9qBMWCn4ziD+Xy+E1gdRdE613W9"
-			$s &= "WsZjAqHrujuAdcDqfD7f6TjOoKoOqOp3QHts4+8e8H2/TUTGgFZgyHGcp+tlr+/7cyzLWqHXZNR1"
-			$s &= "3Qv13jfGvA/0AgVVXeS67k+VfeCSiIyoagboNcbcGYah3dvbe7HilNa8efPeVNWtqtocx7ZojNmR"
-			$s &= "z+df9zwvSr4/NDQ0O5VKBcD6eOkD4FK9JHxMVX1gFjAeRdHabDZ7IqHvV9VtNQ7a7zjOq+WH4eHh"
-			$s &= "ZZZlHQI6gF+AjOM4h+uWoW3b++LsPQ90NDU1LUi6XVW31vH0C77vz0lk/XygQ1W/V9VllcZrNiLb"
-			$s &= "ts8BFwFKpdL5BOByoLkOgWZVfeA6uGX9GO+7XI55I61YYxDhH4qqWlNN3aoEgiCYD9wRs+9IAI4C"
-			$s &= "xTo2/wjDcDThsfLeWb7vt0+LgDGmR1WPxf1gXFXPlnWu614QkfdqXi5EdmzZsuXX8nOpVDoDjAMd"
-			$s &= "InLcGLO+JgHf92cGQRAA+4BZqnowDMNux3GOJzdMTEy8BvRXeKIoIm9NTEx4yXez2eyJMAy7VfUg"
-			$s &= "MBs44F+TmTelEYnI8iiKNAzD0eTJa4R1SFWfqmxEUgG6TUT647a5xHXdq57nWXPnzn1ERNKVg6RO"
-			$s &= "11sHXM3n8596nhf5vn9bfHlZpKqvuK67fcphBLwIXEkMI4Cgqanpuc2bN1+uZnjXrl3pUqn0BvBs"
-			$s &= "jH0GGFTVFhF5GxgvFApdyXkyrXEMHAeWxOP4IrC3UCg8XwYaGBiYkU6nd6rq43Gsq45jYKPjOCN1"
-			$s &= "qyCTyYwAR4EI+FhVVzqO0y0iq4DPYwO96XS67BXS6fTCOL6zgaOWZT3suu59qroSOABEInLEtu19"
-			$s &= "U15KRUSDIHhSRK5mMpmzie54FFhljDkErFHVu4CTcbl1WJYFcNhxnLWJsv0C2JDL5e4ulUopEdFp"
-			$s &= "3Ypt2z5Vp9a/UtUygWTPp0yoilfP3sxr+anYaDYIglXx2uJYfbpRvIYJiMhpVQXoUtWuauRuKYFU"
-			$s &= "KvVNsVjsqfFp9i3/S4PyJ/b+OMoWcMANAAAAAElFTkSuQmCC"
-		Case "Settings_Dark"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAClUlEQVR42u2Xz0tUURTHzx1GaQQJ"
-			$s &= "y42batDFWDFGpRPUH5DhDP2AqfkP2rRNwU04btxEGzXrT0gX0j/QInIRGPTLUSq1FkULC2bTlPZp"
-			$s &= "cwYul3dv740JQV143HvP+Z7vPe/dc8+5T+RfbyapAbBPRIoe9UNjzLc99Rg4hb+dTMqXbsGHnPYr"
-			$s &= "IvJSx8dFpF+f5SRkqV04cNcYUzbGlEVkztHtzgEgB/R6bI5qv2HJ1rXPe/h6gVzcPTbAE2AHeAAM"
-			$s &= "qbwAPLL2e8CyyVvyJeCsyoeUY0c5TRwHKhHBtQxs6/gTcAfosGwywBTwTjHbauO2yu8WzwCbCh4D"
-			$s &= "bgBrFuktIBOwTwM3gR9qs6YcozrfDNkLMK7AVaBNZSlgBCgmOKoj+qR03gbUlHvcZ9QD1BU0HWOR"
-			$s &= "buACMAx0x8BPK3cd6IkCdAD3rf2aB7oicClgEmhY2AZQbb6xg+9SrmabteMnypGrwFcFb9jRrvrJ"
-			$s &= "QCasOtgB5QD4DJTi7mHWCsbLzmdvBBxo2NsBXFT528jP7ktExph1Efmi0/eWalBE2gO+t4vIaWv+"
-			$s &= "Qfu6MeZj0lRMqxUzgt8kTcVZETmg08OW6qmIfA8s2FCMOLb7gUNx97/sBOGJBEE4EQjCLeBKaGH3"
-			$s &= "GC4EjmE14hhOBI7hgoWdizyGLSaiYeA8cDAGfiaYiJxUXItIxZUEqfhSRCpeDabiiGI06hQjgHtA"
-			$s &= "Z8C+E7gN/HSK0ZgVU5lWyvEzqxxvaV7POI7PqC5Ujq/FvZAs6SViHiio/Azw2CLLx7iQFBJfSNSw"
-			$s &= "H+jz6BZ1oZIlK6ps0WPT57uSpT2peCXg3wsRKYnIEUuW1f65h+/Nn7yWN527DpzT8THta3v+K/U3"
-			$s &= "/Ji8EpGyR/da/reE7ReoyGVYInyHsgAAAABJRU5ErkJggg=="
-		Case "Settings_Dark_Disabled"
-			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAE70lEQVR42u1WTWxUVRT+zntTOkVh"
-			$s &= "mIkbXbQ0WDIVadMqbU2JrFygAYOEBlgRo43FvjcdCo2KiU8FkZLSzn1TwJIY3AgYIRESl9INgZmm"
-			$s &= "QhAtf5EfF4aoLT9K3/B897jwDnkMM0NHZKU3mWTeufec851zz/nOBf7ri0pVWLNmTTAUCi3Jt3f9"
-			$s &= "+vXDe/bscUqxFygVwMyZM+cx8xf59mbNmvUMgG8fKgBmjhIRAIwBOK3ETwOo9TyvtlQAWqkANE2L"
-			$s &= "KiC7hBBtQog2AJ/49x4YQGdnZ9QwjDkFdJ5Szi7dKSSiiwAgpazLp2AYxpzOzs7oVK+AiOhTImo2"
-			$s &= "TfMgM2+zbTsdi8WamXkrMy9Szi77dC4pxaWmaR6TUq5PJpNHDcNoIqINAF4BkALQCoCLdoFhGKuI"
-			$s &= "6PMc8QkAdQB0AFcB7HMc552hoaFbABCPxys8z7MArABQDcADcApAQ079rLZte29BAMrQGQCVRPQ2"
-			$s &= "M/8BwABQo4xu0nV9a39//2S+dFqWFRgfH18HYLPK7nkANjNPJ6KPAVzRdT3q17+rBjzPWwegEsC5"
-			$s &= "ycnJPiGEHYlEokS0hJmXCSGsQs4VgD+FEL1EtIyIlkQikagQws5kMtsBnAVQqXzcm4Gurq7HpZTn"
-			$s &= "ADwKYIcQ4s1i1dvd3f2Y67pNUkouLy8f6evr+7XYedM0BwGsBfC7pmlzBwYGfr4LQHt7+/RgMJgA"
-			$s &= "8JoSHXBd9/WdO3dO5ESpjY+PfwBgA4BpSnybiHrD4fB7lmVJ//mOjo5wWVnZbgDLlWiX4zjd2frR"
-			$s &= "swdHR0fdVCp1uKWl5QwRvQCgQdf1lU1NTUfS6fTV7Lm6uroPAWz066r/zzuOo6dSqSO+gq7XdX0Y"
-			$s &= "wHMAfiGi1UKI7aOjo25BHkgkEvs9z2sAcAVAFYA5/rSryAuxZI868zcqXa9WNn7UNK0+kUgcmhIR"
-			$s &= "JZPJiwAmlNErWXkmk1ngS3u+Nc113WezH1LKn9Tfm9k7L4WKWUVR8sT0MZp2v6lbiIqrAURUFFVZ"
-			$s &= "eXl5+QiA20V8ZjzPG/FlIKsbisVilVMCYJpmm67rJxQfXNZ1/UJ2T7XatiIAegcHB3/zfZ8HcBlA"
-			$s &= "FTOfjMViy3MVdH8btra27gCwBUCQiA66rvtSMpm85FdYvHjxsOM4OoAWn/5tAB9FIhFreHj4Dten"
-			$s &= "0+mrjY2NnwUCgRoAjQDampubn6ivr/8m2wkPRESZTGaBpmnsed5ITuT3rFgstoOZOwoSkUr/RgCb"
-			$s &= "AJx1HGf+0NCQa1mWNjEx8aKUckbuICnCesuIyA2Hw19bliXb29vLgsHgaQBzAbwrhNh832HEzG8R"
-			$s &= "0S3fMAIz766oqOju7e29mc9xT0/PDMdx3gfQpWyfB2AT0SPMvEXVVK1/nkx1HJ8EMF/d+QSAvbqu"
-			$s &= "r88aisfjFVLKPmZeCSBcaBwDWCWE2Fe0C2zb3gfgOAAJ4AARtQghGph5IREdVQ7WSilrfO1Wo+43"
-			$s &= "DOC4lHKREKKRiFoAfAlAMvMxIcT+qbyIWNO0V4nI7e/vv+ADdhzAQsMwviKipQBmqyghpawiIjDz"
-			$s &= "Idu2X/bRegrAing8/qTruoHc11DBV/HAwMBYEXb7DsBSKeVsn7havRNP5dPxB/JvPMvHiAhE9IZp"
-			$s &= "mguVeJ7KxJlS7QX+Ab9nndSqH3zTb+yhA7hx48b3oVCoLd/etWvXfsD/q8T1F3tELHpTKPx0AAAA"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB0UlEQVR42u2VsW4TQRCG///2JFAw"
+			$s &= "yG6tSEkDUlAKOmgiGirKoDQUSNxxh0Thwk/ghyBYXmO5RLoiLT2RyAMkUCOQbKp4YwnZyL6dNElj"
+			$s &= "HG6j8xWIG2mbndHOp39mZ4DSSvvfjVkBSZIoY8wbEYlJbgGgiHwlqQeDwX6r1bKFASRJokajUUJy"
+			$s &= "d5lfRA6Gw+FeHgjvb05jzOurkgMAyd16vR7nUcDL8IeZEpJhkQBbWQ+IyP08AH6G36W2S2M6nc5a"
+			$s &= "mqY3Fu+n0+m02WxOXBU4cSjB8eKd1voxyTPf908XT6VSMVrrB04KiEib5MMMhnd/1NXzxtbanwBu"
+			$s &= "LYk/s9b+cvqGIsJut/seQHBFSC+O41eFDqKLej4nGQO4bLgvJHUURR/KWV7YLuj1evX5fP6U5A6A"
+			$s &= "bZIbInIbgAAYA/hO8gTAoed5H8MwHOQG6Pf7N2ez2TOSsYjsuPbIBdQnkp3JZHLQaDR+XxtAa/0E"
+			$s &= "QB/Aek5Vv5F8EUXRoTNAu93eVEodA6isqLRj3/e3gyD44bQLlFIvV5gcAO6kaRpcZxndLaDB7zkD"
+			$s &= "iIi36uzWWuUMQPKoAAU+O6/jarX61hgDAI9IqjxZRSQVkaNarbZfjtnS/gk7B3VfpaOcBrfNAAAA"
 			$s &= "AElFTkSuQmCC"
+		Case "Remove_Profile_Dark"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABQ0lEQVR42u2WvUrEQBSFz3WF9f8B"
+			$s &= "BNFGKws7bRYbK99gtdJKhH0bfxp9hK0tVYRVECvtBQURu1VcFd18NmOXZCa7yYKQD0JCZjLnzL2X"
+			$s &= "O5FKSko8ABWgAdwCP0DXPTeAoUGIN0mmWagJYBc/O0UauAkwcN2PhnkMdCSNetbomNl4rwaGPeNR"
+			$s &= "wBpRgvkxSdWYoU8z+whNwVVAClox360C3wnzv4Cl0AgcSlr2zDmIefcq6VlSXGrakt5DI2DAccru"
+			$s &= "jwbVjDaAM+DFXadAvWzTeWApYZ+WtC6pJmlR0qykSUm4InuQdCfpQtKJmT3lkesRYBM4ByLCiVyN"
+			$s &= "1IFqr+JrwCP9cw/UsorPAW/kRxuYCdH+O0q3JE3kWFtTkrazGJgvoMAXshgo4qeiksXAZQEGWlmO"
+			$s &= "4z13Xwl1nkLXbWi/bLMl/4JfV6QafW+A+/AAAAAASUVORK5CYII="
+		Case "Remove_Profile_Dark_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB20lEQVR42u2VP4gTURDGf7Ob4KJG"
+			$s &= "yGGzi6CNwskVdqY5bKwsT7aVeCcRJBu2tkplmUA2pyiKvcUVNvYeeATLO2xsRMGkCt6B/yD7xiY2"
+			$s &= "IZd9xyaFmA+2mZn35ttv5s3AEkv875CsgDAMXd/3HwA1YHV85gPwbGVlZbvZbJqFEQjD0A2C4JWq"
+			$s &= "bkw9LLJTLpfDPCScWc4gCO4flxxAVTeGw2EtjwIzCRhjtjIlFNlaGAERWc26QFWv5iFQyPDb1HZq"
+			$s &= "TK1WO+267qlJu+d5v9rt9k8rBYADCwX2J21RFN3wPO+wWCwOJ780Tb/FcXzNVoEnwPWZNXScx1PM"
+			$s &= "R8AAODPFd2iM+W47B6TRaDwHNo/xv+h0Ovfy9ICbFdDr9V5XKpWPwPnxH/1Q1ffAwyRJHi1n+cJ2"
+			$s &= "Qb1eDxzHuaWq68CaiFwESoCOm+wzcCAiu2mavul2u19zE6hWq16pVLotIjVg3WZZ/X2NwFtVfQrs"
+			$s &= "JEny+8QEoii6KSIvgQs5Vf2kqneSJNm1JhDH8SVjzD5wdk6lPSoUCmutVuuL1S5Q1btzTA5wbjQa"
+			$s &= "bZ5kGV1eQINfsSZgjHHmnV1VXWsCIrK3AAXeWa/jfr/f9X0foGIznjOQqureYDDYXo7ZJf4J/AHW"
+			$s &= "75selJn+dQAAAABJRU5ErkJggg=="
+		Case "Settings"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABs0lEQVR42u2Xzy9DQRDHP5qmwqEO"
+			$s &= "XBBCUkGEG9r4IyTi4tJ/RHuq/4ceXdqLRKJCgqQugrTiUFKpW6vqspKXze6+3fVaByaZy8z7zsy+"
+			$s &= "nV8Lf52GPHGrwJIkuwWuBxH0AtABehJ3gJSrsZhHABtAXCGPC13fA1g06JajCiAGjGl0KwZ7axp5"
+			$s &= "0uWwMaAEdIFDICPkm0BZcfcynwJbApMWNrrAsW3SZxVGLzSJp+MPgZHle2HOR4BHB0euXANGTQHk"
+			$s &= "++j8m/dNjegJmLLMlRfgTNhYByYscXVgRqcsWJygK06RCOASQE7owvCFsAh3gTfbXyhRzoBrANu2"
+			$s &= "pTivScaGdHKZEuIbGXcHTLo0onugqZBXgLYhgDZwrpC/A8+urbj3m1N3zvMKhkV1yLgHU+arkrDp"
+			$s &= "mYSmPvIK7IQ5ty3DnKIM85ZleGC6mzow7dCIKoFGNG6JqwGzPnXcl1Y86GFUDxtGunF8KUbsT8dx"
+			$s &= "1nYhKYuEOgosJGngxHEhyQQWkpLrVpTU6IoG50XXlUwX0SfQ0uhMu/+VRt4SNiPZiqueusgoJYaO"
+			$s &= "/PvbPg+TKJ9mVeCGf3KkL5EOO0+bEtDnAAAAAElFTkSuQmCC"
+		Case "Settings_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADBElEQVR42u1XQUhUURQ9931pCIf8"
+			$s &= "mistaxMWUWCghQS2tIKCiFm0aPXff7MSkkqIiT5IEEYGs3H+/BgKgmBokS5qI9QmsgwUi2oRBdXQ"
+			$s &= "JhwoKTDn3zYjyPTezHzRWtRdfd7h3Xveu+fedz/wrxutZpPv+3sA7KxYfqOUerHuBDKZzA4hxCsA"
+			$s &= "DRXQkhBil+M4b6P4E1EJCCF6NMEBoKFUKvVE9hf5yog6q2C71oSA53nC9/0mHRaG4e4q/vbqFtPp"
+			$s &= "9CbP80RdGvA8T7S1tU0C6AMwEYbhSDKZfOL7/n4iugLgUI1DTQkhzjqO8zgIggPMPATgGIBJKWU/"
+			$s &= "EXFVAkEQnGbmWyvXmHmGiPYYcq+zEjPPEVFXRYpOSSnvGAmMjo5ujMfjbwB0rFPZf2LmTqXUd60G"
+			$s &= "Ghsbz65jcADYAuCMUYRElIzg7AuA+wAelL/rraJktSrI1eEjZOaUbdvtrusedV33iG3b7QAuAgjr"
+			$s &= "2H+zlghPMvMNANoyZOaUUuqyDstmsykAw6YbIyJHSjletQ9IKe+W1ftB56S5ufmq6Wi2bY/o0sHM"
+			$s &= "75h5b2VwYyOSUr4HUNRA04lEYtFEIJFILBLRc03evymlPkdtxfwnXl0tgbGxse0AWjRQdz6f32By"
+			$s &= "lk6nYwC6NVBTLpfbWheBIAhOWpY1Y+gHrcVi8ZyJQCwWO8/MmzXQtqWlpdkgCE5UvZpsNjsMIFWr"
+			$s &= "DAFcsm17ZFkP+Xx+Q7FYHCIir9YLS0SXpZQpE4FPANojNKJpIiIA3YaT68r4o1Kqw5SCTARhtQI4"
+			$s &= "zMz99QZfnuiMGlhYWLhmqP+1sgKA60YCg4ODP4joombjLIBShEAlZp7R5P/CypdQWwWFQuE2gEdl"
+			$s &= "sY2HYdjrum4XER0E8LiO4FNCiD6l1L4wDHsB3Cv7elj2XbtBeJ4nWlpa4gMDA181/X68POHobMJ1"
+			$s &= "3eO6kWx+fn7B87zfHqsGA4EQwFdDGb1gZhOBOd2i7iCrnoqZ+fVqsLX8L3gK4KcG+mlZ1rO/9mtm"
+			$s &= "WdZrx3Fe4r9FtF/GjxhpvPpjQQAAAABJRU5ErkJggg=="
+		Case "Settings_Dark"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB8ElEQVR42u2Xz0tUURTHv2eQETcj"
+			$s &= "VJu0kQLLImxnKf0RQbhp0/8QuGpmVvb/lMs2uhEEDYsKdBMhKi0qDIOC0eenRXfxmO69777Hm1rk"
+			$s &= "d3nP+37P4Z0f91zpf4dVIQGzkm4OHO+a2buhRwxcB074EyfAdFm9RoUY7koa8ZyPONvQA5iJ2G7V"
+			$s &= "EgDQAMYDnNsRvTsBvRbQSM1xA1gFMuA5sODO7wFrFGMDuO84804jA14ClhLAY4/odqDwQjh1nEE8"
+			$s &= "irYhMCZpV9LUkJroQNKMmf0I1cDSEJ1L0hVJT2J/4FDSRKLYF0mbTmNO0qXUv2Bm7VD+lxPymwEd"
+			$s &= "oJnjNYGusxVhuagIF4FvEYFOhNuN8D4DD1Jb8RqwFxBpRnhN980gPgCXkweRmX2UdOQxbZlZP3iz"
+			$s &= "/ba98pi+m9mnsqOYv3HrhkbxVUkXPKa5ghSMuo4YxDjQTs3/InBUsQh7Ed5X4GGR89Q27HrasJfY"
+			$s &= "hs9ig+hA0mSJQbSVG0QXE3n7ZjZVpY/rQudfXkaHkm4ELyMz+ymp5yG+kZSVcJRJeu05f5p3HltI"
+			$s &= "1lxBvcgtJPPAesmFZCG3kKyW3YpaAdtKxPlK2ZUsNIrPzOw4EF9s938b0Ds2s7O6tuKdirbaHibT"
+			$s &= "QN/z+/tVHiZ1Ps12zOy9zlESvwB6OKDW+wX0GwAAAABJRU5ErkJggg=="
+		Case "Settings_Dark_Disabled"
+			$s = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADBUlEQVR42u1XO2gVQRQ9M7vECGJ4"
+			$s &= "u+mi0UZUJEKERAmCllFBQVJZWEmwyLxNgh+QFxwQQSLyXma30CCiINhYmBTaCNqIX1CMmBSi4Acb"
+			$s &= "s4KKPkx2rs0K8pzZ7NNEC73VMoe598zMuZ8F/nVjv7Kpr6+vzXGcNT+uJUkyFUXRxIITKBaLqwA8"
+			$s &= "BeDWQLOO46wtl8vP6vHH6yVARJ2G4ADgaq076/VXNwHG2OoMeO28EJBS8t7e3iYLgXU2Z1rr9aZ1"
+			$s &= "IcRSKSXPpQEpJY/j+DqALUQ07jjOcKVSuR0EwUat9QnG2NY5DnVHa30giqJbQohNAA4zxnYCuK6U"
+			$s &= "6gZAmQSCINhLRBdqlh8CaLO8vckSAI8BtNfoZ08YhpesBAYGBhYnSTIFoHWB0v51tVpdPTo6+tmo"
+			$s &= "gSRJDixgcABY1tjYOJAlwv11OHsH4Cpj7Fr6ndf2Wwkwxs7lcKABlDzPa1FK7RgZGdnueV4LEQ2l"
+			$s &= "2FxpfD5ThEKIHs75WSJqsvgoKaWOW9KtxBg7lnFj+5RSY5l1IAzDy0mStAN4aXLied5J2+l83x+2"
+			$s &= "PMdzzvn62uDWQhRF0QsA7w3Xd19K+dVGIMUeGKCPlUrlbb2lmP5E1zUS6O/vXwnAMzSiDillg82Z"
+			$s &= "EGIRgA4D1DQ4OLg8FwEhRI/W+qGlHjTHcXwwQ+GHAPgGaMXs7OwjIcTuzKsJguAYEZXmSkMiOur7"
+			$s &= "/vB3PUgpG+I4PgxA5uiwx5VSJSOBYrH4GkBL3kLEGLtPRCy9dj/nPPEqDMNW4xMQ0ek6hNVMRNsA"
+			$s &= "dOcNnj7TGasGXNc9Zcn/+bI31Wq1bCVQLpe/MMaGDBsfpS02ryVpC689/ZEfO6ExCwqFwkUiupnW"
+			$s &= "9THOeZdSqp2INjPGbuUIfkdrvUUptYFz3kVEV1JfNwqFwsVcBUJKyaenp5eEYfjBkKZj6YRjEth4"
+			$s &= "GIa7TCOZ7/ufpJQ/NSvXQkAD+GAR0QQAIwHO+WPTuukgvzOWT2bAkws+lruuexfAjAGa4Zzf+2u/"
+			$s &= "ZkQ0qZR6gv9Wp30DST4q+au+xXAAAAAASUVORK5CYII="
 	EndSwitch
 	Return $s
 EndFunc
@@ -5315,7 +5393,8 @@ Func _ReadmeText()
 	$s &= "splash screen option in 'FileAssociatorPortable.ini' next to the exe.  The profile files only keep profile data" & @CRLF
 	$s &= "('Data\settings\profile.ini' has [profile] active=<last used profile>)." & @CRLF
 	$s &= "" & @CRLF
-	$s &= "Theme = System / Light / Dark." & @CRLF
+	$s &= "Theme = System / Light / Dark (Windows 10 1903 and newer, Windows 11; on Windows 7 / 8 only Light is" & @CRLF
+	$s &= "        available and the list is switched off)." & @CRLF
 	$s &= "        System = Follow the Windows app theme (light or dark)." & @CRLF
 	$s &= "        Light  = Always light." & @CRLF
 	$s &= "        Dark   = Always dark.  Window and title bar, text, inputs, lists, buttons, the tray menu and the" & @CRLF
@@ -5419,6 +5498,14 @@ Func _ReadmeText()
 	$s &= "window and comes to the front (an open dialog is brought to the front).  This also works when the running" & @CRLF
 	$s &= "program was started as administrator." & @CRLF
 	$s &= "" & @CRLF
+	$s &= "This also holds for older versions (PortableFileAssociator, earlier FileAssociatorPortable): they cannot run" & @CRLF
+	$s &= "together with this version.  If an older version is running when this one is started, a message asks whether to" & @CRLF
+	$s &= "close the older version and start this one (Yes) or to leave (No).  The older version is closed the way its" & @CRLF
+	$s &= "Exit does it (associations are removed depending on its setting).  If it cannot be closed (ie it runs as" & @CRLF
+	$s &= "administrator) you are asked to close it yourself.  With the command line parameter exit the older version is" & @CRLF
+	$s &= "closed without asking; add / remove are not done while another version runs.  An older version that is started" & @CRLF
+	$s &= "while this version runs just stops, as before." & @CRLF
+	$s &= "" & @CRLF
 	$s &= "If FAP is already running, there is one command line parameter available:" & @CRLF
 	$s &= "" & @CRLF
 	$s &= "exit = Close the running instance of FAP.  File associations are removed based on the setting" & @CRLF
@@ -5434,16 +5521,17 @@ Func _ReadmeText()
 	$s &= "FileAssociatorPortable works on Windows 7 to Windows 11 (Windows 7 is the minimum; on older Windows the program" & @CRLF
 	$s &= "shows a message and closes).  What differs:" & @CRLF
 	$s &= "" & @CRLF
-	$s &= "- Windows 7 / 8:  the Dark theme colors the windows, text, inputs and lists, but the buttons, combo boxes, scroll" & @CRLF
-	$s &= "  bars, the title bar and the menus keep the Windows look (light)." & @CRLF
-	$s &= "- Windows 10 1903 and newer, Windows 11:  the Dark theme also uses the dark Windows styles for buttons, combo boxes," & @CRLF
-	$s &= "  scroll bars, menus and the title bar." & @CRLF
-	$s &= "- Theme ""System"": follows the app theme of Windows (Windows 10 / 11).  When it is changed while the program is" & @CRLF
-	$s &= "  running, the program follows at once, no restart is needed." & @CRLF
+	$s &= "- Windows 10 1903 and newer, Windows 11:  the Theme (Settings) can be System, Light or Dark.  The dark Windows styles" & @CRLF
+	$s &= "  are used for the buttons, combo boxes, scroll bars, menus and the title bar.  A change of the theme is applied at" & @CRLF
+	$s &= "  once, no restart is needed (also when the theme ""System"" follows a change of the Windows app theme)." & @CRLF
+	$s &= "- Windows 7 / 8 (and Windows 10 before 1903):  there is no dark mode for the buttons, combo boxes, scroll bars, menus and" & @CRLF
+	$s &= "  the title bar, so only the Light theme is available.  The Theme list in the Settings window is switched off.  A" & @CRLF
+	$s &= "  Dark / System setting that is saved in settings.ini is kept (not overwritten), so it is used again on a computer" & @CRLF
+	$s &= "  with Windows 10 / 11 (the program is portable)." & @CRLF
 	$s &= "- The dark Windows styles are called through undocumented functions of Windows 10.  They are only used from" & @CRLF
 	$s &= "  Windows 10 1903 (build 18362); calling them on older Windows crashes the program.  To switch them off on every" & @CRLF
-	$s &= "  Windows add  darkmodeapi=false  to the [settings] section of Data\settings\settings.ini (the Dark theme then" & @CRLF
-	$s &= "  only uses colors)." & @CRLF
+	$s &= "  Windows add  darkmodeapi=false  to the [settings] section of Data\settings\settings.ini (the Light theme is then" & @CRLF
+	$s &= "  always used)." & @CRLF
 	$s &= "" & @CRLF
 	$s &= "Known Issues / Notes:" & @CRLF
 	$s &= "=====================" & @CRLF

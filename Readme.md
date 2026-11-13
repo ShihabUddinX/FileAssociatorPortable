@@ -319,7 +319,7 @@ Click the **gear icon** at the bottom right of the main window (or **Settings** 
 
 | Option | Description | Saved as |
 |---|---|---|
-| **Theme** | **System** follows the Windows app theme, **Light** is always light, **Dark** is always dark (window and title bar, text, inputs, lists, buttons, tray menu, icons). | `theme=system \| light \| dark` |
+| **Theme** | **System** follows the Windows app theme, **Light** is always light, **Dark** is always dark (window and title bar, text, inputs, lists, buttons, tray menu, icons). Windows 10 1903 and newer / Windows 11 only; on Windows 7 / 8 the list is switched off (Light). | `theme=system \| light \| dark` |
 | **Add associations on start** | The associations of the last active profile are added automatically when FAP is started without command line arguments. | `addassociationonstart=true \| false` |
 | **Remove associations on exit** | The file associations are removed again when FAP is closed (Exit, close button, Windows shutdown). On by default. | `removeonexit=true \| false` |
 | **Check for updates on startup** | Looks for a newer version in the background each time FAP starts (a message only appears when a newer version exists). The tray item **Check for updates** checks at any time (releases: `github.com/ShihabUddinX/FileAssociatorPortable`). | `checkupdateonstartup=true \| false` |
@@ -397,6 +397,8 @@ Without command line arguments the [Settings](#settings) decide: **Add associati
 
 **Single instance:** only one copy of the program runs at a time. If `FileAssociatorPortable.exe` is started again while it is running (also when it is hidden in the tray or minimized), no second copy is started: the running program shows its main window and comes to the front (an open dialog is brought to the front). This also works when the running program was started as administrator.
 
+This also holds for **older versions** (PortableFileAssociator, earlier FileAssociatorPortable): they cannot run together with this version. If an older version is running when this one is started, a message asks whether to close the older version and start this one (**Yes**) or to leave (**No**). The older version is closed the way its *Exit* does it (associations are removed depending on its setting). If it cannot be closed (e.g. it runs as administrator) you are asked to close it yourself. With the command line parameter `exit` the older version is closed without asking; `add` / `remove` are not done while another version runs. An older version that is started while this version runs just stops, as before.
+
 If FAP is already running, one command line parameter is available:
 
 | Value | Action |
@@ -411,13 +413,12 @@ If FAP is already running, one command line parameter is available:
 
 FileAssociatorPortable works on **Windows 7 to Windows 11** (Windows 7 is the minimum; on older Windows the program shows a message and closes). What differs:
 
-| Windows | Dark theme |
+| Windows | Theme |
 |---|---|
-| 7, 8 | Colors the windows, text, inputs and lists. Buttons, combo boxes, scroll bars, the title bar and the menus keep the Windows look (light). |
-| 10 (1903 and newer), 11 | Also uses the dark Windows styles for buttons, combo boxes, scroll bars, menus and the title bar. |
+| 10 (1903 and newer), 11 | **System**, **Light** or **Dark**. The dark Windows styles are used for the buttons, combo boxes, scroll bars, menus and the title bar. A change is applied at once, no restart is needed (also when *System* follows a change of the Windows app theme). |
+| 7, 8 (and 10 before 1903) | Only **Light**: there is no dark mode for the buttons, combo boxes, scroll bars, menus and the title bar. The Theme list in the Settings window is switched off. A Dark / System setting saved in `settings.ini` is kept (not overwritten), so it is used again on a computer with Windows 10 / 11 (the program is portable). |
 
-- Theme **System** follows the app theme of Windows (Windows 10 / 11). When it is changed while the program is running, the program follows at once, no restart is needed.
-- The dark Windows styles are called through undocumented functions of Windows 10. They are only used from Windows 10 1903 (build 18362); calling them on older Windows crashes the program. To switch them off on every Windows add `darkmodeapi=false` to the `[settings]` section of `Data\settings\settings.ini` (the Dark theme then only uses colors).
+- The dark Windows styles are called through undocumented functions of Windows 10. They are only used from Windows 10 1903 (build 18362); calling them on older Windows crashes the program. To switch them off on every Windows add `darkmodeapi=false` to the `[settings]` section of `Data\settings\settings.ini` (the Light theme is then always used).
 
 ## Known issues / notes
 
